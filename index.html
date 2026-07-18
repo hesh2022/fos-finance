@@ -246,11 +246,13 @@
             <label>
               Recurring?
               <select id="billRecurring">
+                <option value="One-off">One-off</option>
                 <option value="Weekly">Weekly</option>
                 <option value="Fortnightly">Fortnightly</option>
-                <option value="Monthly">Monthly</option>
+                <option value="Monthly" selected>Monthly</option>
+                <option value="Quarterly">Quarterly</option>
+                <option value="Six-monthly">Six-monthly</option>
                 <option value="Yearly">Yearly</option>
-                <option value="One-off">One-off</option>
               </select>
             </label>
             <div class="form-actions full">
@@ -368,6 +370,18 @@
           </label>
           <button type="submit" class="primary-btn full">Save policy</button>
         </form>
+      </section>
+
+      <section class="panel">
+        <span class="eyebrow">Backup</span>
+        <h2>Save and restore your data</h2>
+        <p>Export a backup before changing devices or clearing browser data.</p>
+        <div class="form-actions">
+          <button type="button" id="exportDataBtn" class="primary-btn">Export backup</button>
+          <button type="button" id="importDataBtn" class="ghost-dark-btn">Import backup</button>
+          <input type="file" id="importDataFile" accept="application/json,.json" hidden />
+        </div>
+        <button type="button" id="resetBtn" class="danger-btn" style="margin-top:12px;">Reset all app data</button>
       </section>
     </section>
   </main>
