@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#17365D" />
+  <link rel="stylesheet" href="styles.css?v=master1" />
+  <title>FOS — Personal Financial Operating System</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="FOS" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="manifest" href="manifest.json" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>FOS</h1>
+      <p>Personal Financial Operating System</p>
+    </div>
+    <button id="resetBtn" class="ghost-btn">Reset</button>
+  </header>
+
+  <main>
+    <!-- HOME -->
+    <section id="homeScreen" class="screen active">
+      <section class="mission-control-card">
+        <span class="eyebrow">Mission control</span>
+        <div id="activeMissionState">
+          <div class="status-line">
+            <div id="missionStateDot" class="health-dot warning"></div>
+            <div>
+              <h2 id="missionStateTitle">Active Mission</h2>
+              <p id="missionStateSub">A payday is ready to process.</p>
+            </div>
+          </div>
+
+          <div class="mission-summary">
+            <div>
+              <span class="eyebrow">Income</span>
+              <strong id="missionIncomeSource">—</strong>
+            </div>
+            <div class="right">
+              <span class="eyebrow">Amount</span>
+              <strong id="missionIncomeAmount">$0</strong>
+            </div>
+          </div>
+
+          <button id="startMissionBtn" class="primary-btn large">Start Mission</button>
+        </div>
+      </section>
+
+      <div class="bucket-grid">
+        <article class="bucket main-bucket">
+          <span>Main account</span>
+          <strong id="homeMain">$0</strong>
+          <small>Unallocated money</small>
+        </article>
+        <article class="bucket">
+          <span>Bills still to fund</span>
+          <strong id="homeBills">$0</strong>
+          <small id="homeBillsSub">Before next payday</small>
+        </article>
+        <article class="bucket">
+          <span>Emergency</span>
+          <strong id="homeEmergency">$0</strong>
+          <small id="homeEmergencySub">0% of target</small>
+        </article>
+        <article class="bucket">
+          <span>Gold</span>
+          <strong id="homeGold">$0</strong>
+          <small id="homeGoldSub">0% of target</small>
+        </article>
+        <article class="bucket lifestyle-bucket">
+          <span>Safe to spend</span>
+          <strong id="homeSafeSpend">$0</strong>
+          <small id="homeSafeSpendSub">Until next payday</small>
+        </article>
+      </div>
+
+      <section class="panel">
+        <span class="eyebrow">Recent missions</span>
+        <h2>Mission history</h2>
+        <div id="missionHistory" class="list"></div>
+      </section>
+    </section>
+
+    <!-- PAYDAY -->
+    <section id="paydayScreen" class="screen">
+      <section class="panel mission-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Financial Mission</span>
+            <h2 id="missionHeading">No income selected</h2>
+          </div>
+          <button id="backHomeBtn" class="ghost-dark-btn">Back</button>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-track"><div id="missionProgress" class="progress-fill"></div></div>
+          <span id="missionProgressText">0%</span>
+        </div>
+
+        <div id="closePreviousMission" class="close-mission-card hidden">
+          <span class="eyebrow">Close previous mission</span>
+          <h2>How much Safe to Spend money is left?</h2>
+          <p>Check the balance of your spending account and enter what remains.</p>
+          <form id="closePreviousMissionForm" class="form-grid compact">
+            <label>
+              Amount remaining (AUD)
+              <input id="previousLifestyleRemaining" type="number" min="0" step="0.01" required />
+            </label>
+            <button type="submit" class="primary-btn full">Continue</button>
+          </form>
+        </div>
+
+        <div id="missionEmpty" class="empty-state">
+          Add or select an income below to generate a mission.
+        </div>
+
+        <div id="missionCard" class="mission-card hidden">
+          <span id="missionStepLabel" class="eyebrow">Step 1 of 4</span>
+          <h2 id="missionAction">Reserve Tax</h2>
+          <div id="missionAmount" class="mission-amount">$0</div>
+          <p id="missionDescription">Move this amount to your Tax account.</p>
+          <div id="missionWhy" class="reason-box"></div>
+          <button id="missionAcceptBtn" class="primary-btn large">Accept recommendation</button>
+          <button id="missionAdjustBtn" class="text-btn">Adjust amount</button>
+
+          <form id="missionAdjustForm" class="adjust-form hidden">
+            <label>
+              Amount to move (AUD)
+              <input id="missionAdjustedAmount" type="number" min="0" step="0.01" required />
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="primary-btn">Save adjustment</button>
+              <button type="button" id="cancelMissionAdjustBtn" class="ghost-dark-btn">Cancel</button>
+            </div>
+            <small id="adjustmentHint"></small>
+          </form>
+        </div>
+
+        <div id="missionComplete" class="complete-card hidden">
+          <div class="checkmark">✓</div>
+          <span class="mission-stamp">MISSION COMPLETE</span>
+          <h2>Everything important is covered</h2>
+          <p id="missionProtectedUntil">Protected until your next payday.</p>
+          <div class="completion-summary">
+            <div><span>Tax</span><strong id="summaryTax">$0</strong></div>
+            <div><span>Bills</span><strong id="summaryBills">$0</strong></div>
+            <div><span>Emergency</span><strong id="summaryEmergency">$0</strong></div>
+            <div><span>Gold</span><strong id="summaryGold">$0</strong></div>
+            <div class="safe">
+              <span>Safe to spend</span>
+              <strong id="summarySpend">$0</strong>
+              <small id="summarySpendGuide"></small>
+            </div>
+          </div>
+          <button id="finishMissionBtn" class="primary-btn">Finish</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <span class="eyebrow">New income</span>
+        <h2>Add payment</h2>
+        <form id="incomeForm" class="form-grid">
+          <input id="editingIncomeId" type="hidden" />
+          <label>
+            Source
+            <input id="incomeSource" required placeholder="CNAH, Friendly..." />
+          </label>
+          <label>
+            Amount (AUD)
+            <input id="incomeAmount" type="number" min="0" step="0.01" required />
+          </label>
+          <label>
+            Date
+            <input id="incomeDate" type="date" required />
+          </label>
+          <label>
+            Tax already deducted?
+            <select id="taxDeducted">
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </label>
+          <div class="form-actions full">
+            <button type="submit" id="saveIncomeBtn" class="primary-btn">Create Mission</button>
+            <button type="button" id="cancelIncomeEditBtn" class="ghost-dark-btn hidden">Cancel</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <span class="eyebrow">Income manager</span>
+        <h2>Income history</h2>
+        <div id="incomeList" class="list"></div>
+      </section>
+    </section>
+
+    <!-- BILLS -->
+    <section id="billsScreen" class="screen">
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Mandatory expenses</span>
+            <h2>Bills</h2>
+          </div>
+          <button id="toggleBillFormBtn" class="primary-btn">Add bill</button>
+        </div>
+
+        <div id="billFormWrap" class="hidden">
+          <form id="billForm" class="form-grid compact">
+            <input id="editingBillId" type="hidden" />
+            <label>
+              Bill name
+              <input id="billName" required placeholder="e.g. House Rent" />
+            </label>
+            <label>
+              Currency
+              <select id="billCurrency">
+                <option value="AUD">AUD</option>
+                <option value="EGP">EGP</option>
+              </select>
+            </label>
+            <label>
+              Original amount
+              <input id="billAmount" type="number" min="0" step="0.01" required />
+            </label>
+            <label>
+              Category
+              <select id="billCategory">
+                <option>Housing</option>
+                <option>Family</option>
+                <option>Transport</option>
+                <option>Travel</option>
+                <option>Living</option>
+                <option>Business</option>
+                <option>Insurance</option>
+              </select>
+            </label>
+            <label>
+              Due date
+              <input id="billDueDate" type="date" required />
+            </label>
+            <label>
+              Recurring?
+              <select id="billRecurring">
+                <option value="Weekly">Weekly</option>
+                <option value="Fortnightly">Fortnightly</option>
+                <option value="Monthly">Monthly</option>
+                <option value="Yearly">Yearly</option>
+                <option value="One-off">One-off</option>
+              </select>
+            </label>
+            <div class="form-actions full">
+              <button type="submit" id="saveBillBtn" class="primary-btn">Save bill</button>
+              <button type="button" id="cancelBillEditBtn" class="ghost-dark-btn">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="bill-summary">
+          <div>
+            <span class="eyebrow">Bills due before next payday</span>
+            <strong id="billsDueBeforePayday">$0</strong>
+          </div>
+          <div class="right">
+            <span class="eyebrow">Number of bills</span>
+            <strong id="billsDueCount">0</strong>
+          </div>
+        </div>
+        <div id="billsList" class="list"></div>
+      </section>
+    </section>
+
+    <!-- ACCOUNTS -->
+    <section id="accountsScreen" class="screen">
+      <section class="panel">
+        <span class="eyebrow">Buckets</span>
+        <h2>Accounts</h2>
+        <div class="account-list">
+          <div class="account-row"><span>Main account</span><strong id="accMain">$0</strong></div>
+          <div class="account-row"><span>Bills account</span><strong id="accBills">$0</strong></div>
+          <div class="account-row"><span>Emergency fund</span><strong id="accEmergency">$0</strong></div>
+          <div class="account-row"><span>Gold fund</span><strong id="accGold">$0</strong></div>
+          <div class="account-row"><span>Tax reserve</span><strong id="accTax">$0</strong></div>
+          <div class="account-row"><span>Safe to spend</span><strong id="accLifestyle">$0</strong></div>
+        </div>
+        <div class="reconcile-box">
+          <span class="eyebrow">Reconcile</span>
+          <h3>Set your actual Main account balance</h3>
+          <p>Use the balance shown in your real bank account. This does not change your income history.</p>
+          <form id="mainReconcileForm" class="form-grid compact">
+            <label>
+              Actual Main balance (AUD)
+              <input id="actualMainBalance" type="number" min="0" step="0.01" required />
+            </label>
+            <button type="submit" class="primary-btn full">Update Main balance</button>
+          </form>
+        </div>
+      </section>
+
+<section class="panel">
+        <span class="eyebrow">Activity</span>
+        <h2>Completed transfers</h2>
+        <div id="transferHistory" class="list"></div>
+      </section>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="settingsScreen" class="screen">
+      <section class="panel">
+        <span class="eyebrow">Protocol</span>
+        <h2>Financial Policy</h2>
+        <form id="settingsForm" class="form-grid">
+          <label>
+            Financial mode
+            <select id="mode">
+              <option>Stability</option>
+              <option>Growth</option>
+              <option>Wealth</option>
+            </select>
+          </label>
+          <label>
+            Tax reserve %
+            <input id="taxRate" type="number" min="0" max="100" step="1" />
+          </label>
+          <label>
+            Emergency target
+            <input id="emergencyTarget" type="number" min="0" step="100" />
+          </label>
+          <label>
+            Gold target
+            <input id="goldTarget" type="number" min="0" step="100" />
+          </label>
+          <label>
+            Opening emergency balance
+            <input id="openingEmergency" type="number" min="0" step="100" />
+          </label>
+          <label>
+            Opening gold balance
+            <input id="openingGold" type="number" min="0" step="100" />
+          </label>
+          <label>
+            1 AUD = how many EGP?
+            <input id="exchangeRate" type="number" min="0.01" step="0.01" />
+          </label>
+          <label>
+            Safe to spend per payday
+            <input id="lifestyleAllowance" type="number" min="0" step="50" />
+          </label>
+          <label>
+            Stability emergency %
+            <input id="stabilityEmergencyPct" type="number" min="0" max="100" step="5" />
+          </label>
+          <label>
+            Growth emergency %
+            <input id="growthEmergencyPct" type="number" min="0" max="100" step="5" />
+          </label>
+          <label>
+            Wealth emergency %
+            <input id="wealthEmergencyPct" type="number" min="0" max="100" step="5" />
+          </label>
+          <label>
+            Next payday
+            <input id="nextPayday" type="date" />
+          </label>
+          <button type="submit" class="primary-btn full">Save policy</button>
+        </form>
+      </section>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button data-screen="homeScreen" class="active">Home</button>
+    <button data-screen="paydayScreen">Payday</button>
+    <button data-screen="billsScreen">Bills</button>
+    <button data-screen="accountsScreen">Accounts</button>
+    <button data-screen="settingsScreen">Policy</button>
+  </nav>
+
+  <script src="app.js?v=master1"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./service-worker.js");
+      });
+    }
+  </script>
+</body>
+</html>
