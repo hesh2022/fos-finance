@@ -21,7 +21,7 @@ const DEFAULT_STATE = {
   bills: [],
   transfers: [],
   activeMission: null,
-  schemaVersion: 3
+  schemaVersion: 4
 };
 
 let state = clone(DEFAULT_STATE);
@@ -100,7 +100,7 @@ function migrateState(raw) {
   })) : [];
   next.transfers = Array.isArray(raw.transfers) ? raw.transfers : [];
   next.activeMission = raw.activeMission && typeof raw.activeMission === "object" ? raw.activeMission : null;
-  next.schemaVersion = 3;
+  next.schemaVersion = 4;
   return next;
 }
 
@@ -188,8 +188,17 @@ function unlockDueRecurringBills() {
   });
   return changed;
 }
-function calculateBillsDueBeforePayday() {
-  const payday = parseDateOnly(state.policy.nextPayday);
+function getExpectedIncomes() {
+  return state.incomes
+    .filter(i => i.status === "Pending" && parseDateOnly(i.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+function getNextExpectedIncome() {
+  return getExpectedIncomes()[0] || null;
+}
+function calculateBillsDueBeforePayday(paydayValue = null) {
+  const nextIncome = getNextExpectedIncome();
+  const payday = parseDateOnly(paydayValue || nextIncome?.date || state.policy.nextPayday);
   if (!payday) return { gross: 0, total: 0, count: 0 };
   let gross = 0, count = 0;
   for (const bill of state.bills) {
@@ -332,19 +341,53 @@ function renderAll() {
   if ($("homeGold")) $("homeGold").textContent=`$${state.accounts.gold.toFixed(2)}`;
   if ($("homeEmergencySub")) $("homeEmergencySub").textContent=`${Math.min(100, state.policy.emergencyTarget ? state.accounts.emergency/state.policy.emergencyTarget*100 : 0).toFixed(0)}% of target`;
   if ($("homeGoldSub")) $("homeGoldSub").textContent=`${Math.min(100, state.policy.goldTarget ? state.accounts.gold/state.policy.goldTarget*100 : 0).toFixed(0)}% of target`;
-  const pending=state.incomes.find(i => i.status === "Pending");
+  const expectedIncomes = getExpectedIncomes();
+  const pending = expectedIncomes[0];
   if (pending && !state.activeMission) {
-    $("missionStateDot").className="health-dot warning"; $("missionStateTitle").textContent="Active Mission Pending";
-    $("missionStateSub").textContent=`Income “${pending.source}” is ready to route.`; $("missionIncomeSource").textContent=pending.source;
-    $("missionIncomeAmount").textContent=`$${pending.amount.toFixed(2)}`; $("startMissionBtn").onclick=()=>initMission(pending);
+    const isDue = pending.date <= todayISO();
+    $("missionStateDot").className=`health-dot ${isDue ? "warning" : "success"}`;
+    $("missionStateTitle").textContent=isDue ? "Income Ready" : "Next Expected Income";
+    $("missionStateSub").textContent=isDue
+      ? `“${pending.source}” can now be processed.`
+      : `${pending.source} is expected on ${pending.date}.`;
+    $("missionIncomeSource").textContent=pending.source;
+    $("missionIncomeAmount").textContent=`$${pending.amount.toFixed(2)}`;
+    $("startMissionBtn").textContent=isDue ? "Start Mission" : "Mark Received & Start";
+    $("startMissionBtn").onclick=()=>initMission(pending);
   } else {
     $("missionStateDot").className="health-dot success"; $("missionStateTitle").textContent="All Systems Clear";
     $("missionStateSub").textContent=state.activeMission ? "A payday mission is in progress." : "All income sources are allocated.";
-    $("missionIncomeSource").textContent="—"; $("missionIncomeAmount").textContent="$0"; $("startMissionBtn").onclick=state.activeMission ? ()=>navigateTo("paydayScreen") : null;
+    $("missionIncomeSource").textContent="—"; $("missionIncomeAmount").textContent="$0"; $("startMissionBtn").textContent=state.activeMission ? "Open Mission" : "Start Mission"; $("startMissionBtn").onclick=state.activeMission ? ()=>navigateTo("paydayScreen") : null;
   }
-  renderMission(); renderBillsList(); renderIncomeList(); renderTransferHistory();
+  renderExpectedIncomeForecast(); renderMission(); renderBillsList(); renderIncomeList(); renderTransferHistory();
 }
 function escapeHTML(v) { return String(v).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
+function renderExpectedIncomeForecast() {
+  const container = document.getElementById("expectedIncomeForecast");
+  const totalEl = document.getElementById("expectedIncomeTotal");
+  if (!container) return;
+  const expected = getExpectedIncomes().slice(0, 2);
+  const total = expected.reduce((sum, income) => sum + round2(income.amount), 0);
+  if (totalEl) totalEl.textContent = `$${total.toFixed(2)}`;
+  container.innerHTML = "";
+  if (!expected.length) {
+    container.innerHTML = '<div class="empty-state">No expected income added yet. Add your next payments on the Payday screen.</div>';
+    return;
+  }
+  let projectedCash = round2(state.accounts.main + state.accounts.bills);
+  let previousBillsGross = 0;
+  expected.forEach((income, index) => {
+    const due = calculateBillsDueBeforePayday(income.date);
+    const incrementalBills = Math.max(0, round2(due.gross - previousBillsGross));
+    projectedCash = round2(projectedCash + income.amount - incrementalBills);
+    previousBillsGross = due.gross;
+    const item = document.createElement("div");
+    item.className = "forecast-item";
+    item.innerHTML = `<div><span class="forecast-number">${index + 1}</span><strong>${escapeHTML(income.source)}</strong><p>${escapeHTML(income.date)} · Bills due by then: $${due.gross.toFixed(2)}</p></div><div class="right"><strong>$${income.amount.toFixed(2)}</strong><small>Projected after bills: $${projectedCash.toFixed(2)}</small></div>`;
+    container.appendChild(item);
+  });
+}
+
 function renderBillsList() {
   const c=document.getElementById("billsList"); c.innerHTML="";
   if (!state.bills.length) { c.innerHTML='<div class="empty-state">No bills entered.</div>'; return; }
@@ -358,7 +401,7 @@ function renderBillsList() {
 function renderIncomeList() {
   const c=document.getElementById("incomeList"); c.innerHTML="";
   if (!state.incomes.length) { c.innerHTML='<div class="empty-state">No income records.</div>'; return; }
-  state.incomes.forEach(i => { const item=document.createElement("div"); item.className="list-item"; item.innerHTML=`<div><strong>${escapeHTML(i.source)} [${i.status}]</strong><p>${escapeHTML(i.date)} | Tax deducted: ${i.taxDeducted}</p></div><div class="right"><strong>$${i.amount.toFixed(2)} AUD</strong><div>${i.status==="Pending"?`<button class="text-btn primary-text" onclick="editIncome('${i.id}')">Edit</button>`:""}<button class="text-btn danger-text" onclick="deleteIncome('${i.id}')">Delete</button></div></div>`; c.appendChild(item); });
+  [...state.incomes].sort((a,b)=>a.date.localeCompare(b.date)).forEach(i => { const item=document.createElement("div"); item.className="list-item"; const label=i.status==="Pending"?"Expected":i.status; item.innerHTML=`<div><strong>${escapeHTML(i.source)} [${label}]</strong><p>${escapeHTML(i.date)} | Tax deducted: ${i.taxDeducted}</p></div><div class="right"><strong>$${i.amount.toFixed(2)} AUD</strong><div>${i.status==="Pending"?`<button class="text-btn success-text" onclick="receiveIncome('${i.id}')">Received</button><button class="text-btn primary-text" onclick="editIncome('${i.id}')">Edit</button>`:""}<button class="text-btn danger-text" onclick="deleteIncome('${i.id}')">Delete</button></div></div>`; c.appendChild(item); });
 }
 function renderTransferHistory() {
   const c=document.getElementById("transferHistory"); c.innerHTML="";
@@ -368,6 +411,7 @@ function renderTransferHistory() {
 
 window.editBill=id=>{ const b=state.bills.find(x=>x.id===id); if(!b)return; for(const [field,val] of [["billName",b.name],["billCurrency",b.currency],["billAmount",b.amount],["billCategory",b.category],["billDueDate",b.dueDate],["billRecurring",normalizeFrequency(b.recurring)]]) document.getElementById(field).value=val; document.getElementById("billForm").dataset.editId=id; document.getElementById("billFormWrap").classList.remove("hidden"); };
 window.deleteBill=id=>{ if(confirm("Remove this bill?")){ state.bills=state.bills.filter(b=>b.id!==id); persistState(); } };
+window.receiveIncome=id=>{ const i=state.incomes.find(x=>x.id===id); if(i&&i.status==="Pending")initMission(i); };
 window.editIncome=id=>{ const i=state.incomes.find(x=>x.id===id); if(!i||i.status!=="Pending")return; document.getElementById("incomeSource").value=i.source; document.getElementById("incomeAmount").value=i.amount; document.getElementById("incomeDate").value=i.date; document.getElementById("taxDeducted").value=i.taxDeducted; document.getElementById("incomeForm").dataset.editId=id; };
 window.deleteIncome=id=>{ const i=state.incomes.find(x=>x.id===id); if(!i)return; if(i.status!=="Pending"){ notify("Processed or in-progress income cannot be deleted automatically. Use account reconciliation if needed."); return; } if(confirm("Delete this pending income?")){ state.incomes=state.incomes.filter(x=>x.id!==id); persistState(); } };
 
@@ -376,14 +420,14 @@ document.getElementById("billForm")?.addEventListener("submit",e=>{ e.preventDef
 document.getElementById("toggleBillFormBtn")?.addEventListener("click",()=>{const f=document.getElementById("billForm");delete f.dataset.editId;f.reset();document.getElementById("billFormWrap").classList.toggle("hidden");});
 document.getElementById("cancelBillEditBtn")?.addEventListener("click",()=>{delete document.getElementById("billForm").dataset.editId;document.getElementById("billFormWrap").classList.add("hidden");});
 document.getElementById("mainReconcileForm")?.addEventListener("submit",e=>{e.preventDefault();const target=round2(document.getElementById("actualMainBalance").value);if(target<0)return;executeTransfer("SYSTEM","Main",target,"Manual Main balance reconciliation",{type:"RECONCILIATION"});e.currentTarget.reset();persistState();});
-document.getElementById("settingsForm")?.addEventListener("submit",e=>{e.preventDefault();for(const [key,id] of [["mode","mode"],["taxRate","taxRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"],["nextPayday","nextPayday"]]){const el=document.getElementById(id);if(el)state.policy[key]=el.type==="number"?Number(el.value):el.value;}persistState();notify("Financial policy saved.");});
+document.getElementById("settingsForm")?.addEventListener("submit",e=>{e.preventDefault();for(const [key,id] of [["mode","mode"],["taxRate","taxRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"]]){const el=document.getElementById(id);if(el)state.policy[key]=el.type==="number"?Number(el.value):el.value;}persistState();notify("Financial policy saved.");});
 
 document.getElementById("exportDataBtn")?.addEventListener("click",()=>{persistState(false);const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`FOS-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(url);});
 document.getElementById("importDataBtn")?.addEventListener("click",()=>document.getElementById("importDataFile").click());
 document.getElementById("importDataFile")?.addEventListener("change",e=>{const file=e.target.files?.[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const imported=migrateState(JSON.parse(r.result));if(!confirm("Replace the current app data with this backup?"))return;state=imported;persistState();populateSettings();notify("Backup imported successfully.");}catch(err){notify("This backup file is not valid.");}};r.readAsText(file);e.target.value="";});
 document.getElementById("resetBtn")?.addEventListener("click",()=>{if(confirm("Reset FOS? All balances, bills and income records will be erased.")){localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(`${STORAGE_KEY}_backup`);state=clone(DEFAULT_STATE);persistState();populateSettings();}});
 
-function populateSettings(){for(const [id,key] of [["mode","mode"],["taxRate","taxRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"],["nextPayday","nextPayday"]]){const el=document.getElementById(id);if(el)el.value=state.policy[key];}}
+function populateSettings(){for(const [id,key] of [["mode","mode"],["taxRate","taxRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"]]){const el=document.getElementById(id);if(el)el.value=state.policy[key];}}
 
 window.addEventListener("load",()=>{loadState();populateSettings();renderAll();});
 

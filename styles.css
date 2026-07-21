@@ -342,3 +342,20 @@ input, select {
   margin: 0 0 14px;
   color: var(--muted);
 }
+
+
+/* FOS Cloud */
+.header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.cloud-status{font-size:12px;font-weight:800;padding:7px 10px;border-radius:999px;background:rgba(255,255,255,.14)}.cloud-status[data-tone="success"]{background:#dff4e2;color:#155724}.cloud-status[data-tone="working"]{background:#fff2cc;color:#6b5200}.cloud-status[data-tone="warning"]{background:#fde2e2;color:#8a1c1c}.cloud-auth-overlay{position:fixed;inset:0;z-index:1000;background:rgba(9,20,38,.72);display:grid;place-items:center;padding:18px}.cloud-auth-card{width:min(480px,100%);background:white;border-radius:20px;padding:26px;box-shadow:0 24px 80px rgba(0,0,0,.25)}.cloud-auth-card h2{margin:7px 0}.cloud-auth-card p{color:var(--muted)}.cloud-auth-message{min-height:22px;color:#9b1c1c;font-weight:700}.cloud-auth-card small{display:block;color:var(--muted);margin-top:14px;line-height:1.45}@media(max-width:600px){.app-header{align-items:flex-start}.header-actions{max-width:58%}.cloud-status{width:100%;text-align:center}}
+
+/* Expected income forecast */
+.forecast-list { display: grid; gap: 10px; margin-top: 14px; }
+.forecast-item { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.55); }
+.forecast-item > div:first-child { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; }
+.forecast-item p { grid-column: 2; margin: 3px 0 0; color: var(--muted); }
+.forecast-item .right { text-align: right; }
+.forecast-item .right small { display: block; color: var(--muted); margin-top: 4px; }
+.forecast-number { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; background: var(--ink); color: white; grid-row: 1 / span 2; }
+@media (max-width: 640px) {
+  .forecast-item { align-items: flex-start; }
+  .forecast-item .right { min-width: 125px; }
+}

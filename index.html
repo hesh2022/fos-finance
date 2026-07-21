@@ -13,12 +13,33 @@
   <link rel="manifest" href="manifest.json" />
 </head>
 <body>
+  <div id="cloudAuthOverlay" class="cloud-auth-overlay hidden">
+    <section class="cloud-auth-card">
+      <span class="eyebrow">FOS Cloud</span>
+      <h2>Sign in to FOS</h2>
+      <p>Use the same email and password on every device.</p>
+      <form id="cloudAuthForm" class="form-grid compact">
+        <label>Email<input id="cloudEmail" type="email" autocomplete="email" required /></label>
+        <label>Password<input id="cloudPassword" type="password" minlength="6" autocomplete="current-password" required /></label>
+        <div class="form-actions full">
+          <button type="submit" class="primary-btn">Sign in</button>
+          <button type="button" id="cloudSignUpBtn" class="ghost-dark-btn">Create account</button>
+        </div>
+      </form>
+      <p id="cloudAuthMessage" class="cloud-auth-message"></p>
+      <small>Your financial data remains stored locally as a backup and is synchronised privately to your account.</small>
+    </section>
+  </div>
   <header class="app-header">
     <div>
       <h1>FOS</h1>
       <p>Personal Financial Operating System</p>
     </div>
-    <button id="resetBtn" class="ghost-btn">Reset</button>
+    <div class="header-actions">
+      <span id="cloudStatus" class="cloud-status" data-tone="neutral">Starting cloud…</span>
+      <button id="cloudLogoutBtn" class="ghost-btn hidden">Sign out</button>
+      <button id="resetBtn" class="ghost-btn">Reset</button>
+    </div>
   </header>
 
   <main>
@@ -77,6 +98,20 @@
           <small id="homeSafeSpendSub">Until next payday</small>
         </article>
       </div>
+
+      <section class="panel forecast-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Future cash flow</span>
+            <h2>Next two expected incomes</h2>
+          </div>
+          <div class="right">
+            <span class="eyebrow">Expected total</span>
+            <strong id="expectedIncomeTotal">$0.00</strong>
+          </div>
+        </div>
+        <div id="expectedIncomeForecast" class="forecast-list"></div>
+      </section>
 
       <section class="panel">
         <span class="eyebrow">Recent missions</span>
@@ -161,8 +196,8 @@
       </section>
 
       <section class="panel">
-        <span class="eyebrow">New income</span>
-        <h2>Add payment</h2>
+        <span class="eyebrow">Expected income planner</span>
+        <h2>Add an expected payment</h2>
         <form id="incomeForm" class="form-grid">
           <input id="editingIncomeId" type="hidden" />
           <label>
@@ -185,7 +220,7 @@
             </select>
           </label>
           <div class="form-actions full">
-            <button type="submit" id="saveIncomeBtn" class="primary-btn">Create Mission</button>
+            <button type="submit" id="saveIncomeBtn" class="primary-btn">Add expected income</button>
             <button type="button" id="cancelIncomeEditBtn" class="ghost-dark-btn hidden">Cancel</button>
           </div>
         </form>
@@ -193,7 +228,7 @@
 
       <section class="panel">
         <span class="eyebrow">Income manager</span>
-        <h2>Income history</h2>
+        <h2>Expected and received income</h2>
         <div id="incomeList" class="list"></div>
       </section>
     </section>
@@ -364,10 +399,6 @@
             Wealth emergency %
             <input id="wealthEmergencyPct" type="number" min="0" max="100" step="5" />
           </label>
-          <label>
-            Next payday
-            <input id="nextPayday" type="date" />
-          </label>
           <button type="submit" class="primary-btn full">Save policy</button>
         </form>
       </section>
@@ -394,13 +425,9 @@
     <button data-screen="settingsScreen">Policy</button>
   </nav>
 
-  <script src="app.js?v=master1"></script>
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./service-worker.js");
-      });
-    }
-  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js?v=income1"></script>
+  <script src="app.js?v=income1"></script>
+  <script src="cloud.js?v=income1"></script>
 </body>
 </html>
