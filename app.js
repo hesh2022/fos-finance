@@ -196,6 +196,60 @@ function getExpectedIncomes() {
 function getNextExpectedIncome() {
   return getExpectedIncomes()[0] || null;
 }
+
+function formatDisplayDate(value) {
+  const date = parseDateOnly(value);
+  if (!date) return String(value || "—");
+  return new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", year: "numeric" }).format(date);
+}
+function getUnpaidBillsInWindow(startDateValue, endDateValue) {
+  const start = parseDateOnly(startDateValue);
+  const end = parseDateOnly(endDateValue);
+  if (!start) return [];
+  const results = [];
+  for (const bill of state.bills) {
+    if (bill.status === "Paid") continue;
+    let due = parseDateOnly(bill.dueDate);
+    if (!due) continue;
+    const frequency = normalizeFrequency(bill.recurring);
+    let guard = 0;
+    while (due && guard < 1000) {
+      const afterStart = due >= start;
+      const beforeEnd = !end || due < end;
+      if (afterStart && beforeEnd) {
+        results.push({ bill, dueDate: toDateOnly(due), amount: getBillAmountInAUD(bill) });
+      }
+      if (end && due >= end) break;
+      if (frequency === "One-off") break;
+      const next = addCycle(toDateOnly(due), frequency);
+      if (next === toDateOnly(due)) break;
+      due = parseDateOnly(next);
+      guard += 1;
+    }
+  }
+  return results.sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+}
+function getMissionQueueItems() {
+  const pending = getExpectedIncomes();
+  const items = [];
+  if (state.activeMission) {
+    const income = state.incomes.find(i => i.id === state.activeMission.incomeId);
+    const nextPending = pending[0] || null;
+    items.push({
+      income: income || { id: state.activeMission.incomeId, source: state.activeMission.incomeSource, amount: state.activeMission.incomeAmount, date: todayISO() },
+      status: "active",
+      nextIncome: nextPending
+    });
+  }
+  pending.forEach((income, index) => {
+    items.push({
+      income,
+      status: !state.activeMission && index === 0 && income.date <= todayISO() ? "ready" : "waiting",
+      nextIncome: pending[index + 1] || null
+    });
+  });
+  return items;
+}
 function calculateBillsDueBeforePayday(paydayValue = null) {
   const nextIncome = getNextExpectedIncome();
   const payday = parseDateOnly(paydayValue || nextIncome?.date || state.policy.nextPayday);
@@ -349,7 +403,7 @@ function renderAll() {
     $("missionStateTitle").textContent=isDue ? "Income Ready" : "Next Expected Income";
     $("missionStateSub").textContent=isDue
       ? `“${pending.source}” can now be processed.`
-      : `${pending.source} is expected on ${pending.date}.`;
+      : `${pending.source} is expected on ${formatDisplayDate(pending.date)}.`;
     $("missionIncomeSource").textContent=pending.source;
     $("missionIncomeAmount").textContent=`$${pending.amount.toFixed(2)}`;
     $("startMissionBtn").textContent=isDue ? "Start Mission" : "Mark Received & Start";
@@ -359,32 +413,37 @@ function renderAll() {
     $("missionStateSub").textContent=state.activeMission ? "A payday mission is in progress." : "All income sources are allocated.";
     $("missionIncomeSource").textContent="—"; $("missionIncomeAmount").textContent="$0"; $("startMissionBtn").textContent=state.activeMission ? "Open Mission" : "Start Mission"; $("startMissionBtn").onclick=state.activeMission ? ()=>navigateTo("paydayScreen") : null;
   }
-  renderExpectedIncomeForecast(); renderMission(); renderBillsList(); renderIncomeList(); renderTransferHistory();
+  renderMissionQueue(); renderMission(); renderBillsList(); renderIncomeList(); renderTransferHistory();
 }
 function escapeHTML(v) { return String(v).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
-function renderExpectedIncomeForecast() {
-  const container = document.getElementById("expectedIncomeForecast");
+function renderMissionQueue() {
+  const container = document.getElementById("missionQueue");
   const totalEl = document.getElementById("expectedIncomeTotal");
   if (!container) return;
-  const expected = getExpectedIncomes().slice(0, 2);
-  const total = expected.reduce((sum, income) => sum + round2(income.amount), 0);
+  const pending = getExpectedIncomes();
+  const total = pending.reduce((sum, income) => sum + round2(income.amount), 0);
   if (totalEl) totalEl.textContent = `$${total.toFixed(2)}`;
+  const items = getMissionQueueItems();
   container.innerHTML = "";
-  if (!expected.length) {
-    container.innerHTML = '<div class="empty-state">No expected income added yet. Add your next payments on the Payday screen.</div>';
+  if (!items.length) {
+    container.innerHTML = '<div class="queue-empty">No missions are waiting. Add an expected income on the Payday screen.</div>';
     return;
   }
-  let projectedCash = round2(state.accounts.main + state.accounts.bills);
-  let previousBillsGross = 0;
-  expected.forEach((income, index) => {
-    const due = calculateBillsDueBeforePayday(income.date);
-    const incrementalBills = Math.max(0, round2(due.gross - previousBillsGross));
-    projectedCash = round2(projectedCash + income.amount - incrementalBills);
-    previousBillsGross = due.gross;
-    const item = document.createElement("div");
-    item.className = "forecast-item";
-    item.innerHTML = `<div><span class="forecast-number">${index + 1}</span><strong>${escapeHTML(income.source)}</strong><p>${escapeHTML(income.date)} · Bills due by then: $${due.gross.toFixed(2)}</p></div><div class="right"><strong>$${income.amount.toFixed(2)}</strong><small>Projected after bills: $${projectedCash.toFixed(2)}</small></div>`;
-    container.appendChild(item);
+  items.forEach((item, index) => {
+    const income = item.income;
+    const windowStart = income.date || todayISO();
+    const windowEnd = item.nextIncome?.date || null;
+    const bills = getUnpaidBillsInWindow(windowStart, windowEnd);
+    const totalBills = round2(bills.reduce((sum, entry) => sum + entry.amount, 0));
+    const statusText = item.status === "active" ? "Active mission" : item.status === "ready" ? "Payment due — ready to start" : index === 0 && !state.activeMission ? "Next mission" : "Waiting";
+    const protectionText = windowEnd ? `Bills until ${formatDisplayDate(windowEnd)}` : "Bills after this income";
+    const billChips = bills.length
+      ? bills.slice(0, 4).map(entry => `<span class="queue-bill-chip ${entry.dueDate < todayISO() ? "overdue" : ""}">${escapeHTML(entry.bill.name)} · ${formatDisplayDate(entry.dueDate)}</span>`).join("") + (bills.length > 4 ? `<span class="queue-bill-chip">+${bills.length - 4} more</span>` : "")
+      : '<span class="queue-bill-chip">No unpaid bills in this period</span>';
+    const card = document.createElement("article");
+    card.className = `queue-card ${item.status === "active" ? "active" : ""}`;
+    card.innerHTML = `<div class="queue-card-head"><div class="queue-card-title"><span class="queue-position">${index + 1}</span><div><h3>${escapeHTML(income.source)}</h3><p>${formatDisplayDate(income.date)}</p><span class="queue-status ${item.status}">${statusText}</span></div></div><div class="queue-amount">$${round2(income.amount).toFixed(2)}</div></div><div class="queue-bills"><div class="queue-bills-summary"><strong>${protectionText}</strong><span>${bills.length} bill${bills.length === 1 ? "" : "s"} · $${totalBills.toFixed(2)}</span></div><div class="queue-bills-list">${billChips}</div></div>`;
+    container.appendChild(card);
   });
 }
 
@@ -401,7 +460,7 @@ function renderBillsList() {
 function renderIncomeList() {
   const c=document.getElementById("incomeList"); c.innerHTML="";
   if (!state.incomes.length) { c.innerHTML='<div class="empty-state">No income records.</div>'; return; }
-  [...state.incomes].sort((a,b)=>a.date.localeCompare(b.date)).forEach(i => { const item=document.createElement("div"); item.className="list-item"; const label=i.status==="Pending"?"Expected":i.status; item.innerHTML=`<div><strong>${escapeHTML(i.source)} [${label}]</strong><p>${escapeHTML(i.date)} | Tax deducted: ${i.taxDeducted}</p></div><div class="right"><strong>$${i.amount.toFixed(2)} AUD</strong><div>${i.status==="Pending"?`<button class="text-btn success-text" onclick="receiveIncome('${i.id}')">Received</button><button class="text-btn primary-text" onclick="editIncome('${i.id}')">Edit</button>`:""}<button class="text-btn danger-text" onclick="deleteIncome('${i.id}')">Delete</button></div></div>`; c.appendChild(item); });
+  [...state.incomes].sort((a,b)=>a.date.localeCompare(b.date)).forEach(i => { const item=document.createElement("div"); item.className="list-item"; const label=i.status==="Pending"?"Expected":i.status; item.innerHTML=`<div><strong>${escapeHTML(i.source)} [${label}]</strong><p>${formatDisplayDate(i.date)} | Tax deducted: ${i.taxDeducted}</p></div><div class="right"><strong>$${i.amount.toFixed(2)} AUD</strong><div>${i.status==="Pending"?`<button class="text-btn success-text" onclick="receiveIncome('${i.id}')">Mark Received</button><button class="text-btn primary-text" onclick="editIncome('${i.id}')">Edit</button>`:""}<button class="text-btn danger-text" onclick="deleteIncome('${i.id}')">Delete</button></div></div>`; c.appendChild(item); });
 }
 function renderTransferHistory() {
   const c=document.getElementById("transferHistory"); c.innerHTML="";

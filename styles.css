@@ -359,3 +359,30 @@ input, select {
   .forecast-item { align-items: flex-start; }
   .forecast-item .right { min-width: 125px; }
 }
+
+/* Mission Queue v1.2 */
+.panel-intro { margin: 4px 0 16px; color: var(--muted); }
+.mission-queue { display: grid; gap: 12px; }
+.queue-card { border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: rgba(255,255,255,.62); }
+.queue-card.active { border-width: 2px; box-shadow: 0 8px 24px rgba(23,54,93,.10); }
+.queue-card-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.queue-card-title { display: flex; gap: 11px; align-items: flex-start; }
+.queue-position { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: white; font-weight: 900; flex: 0 0 auto; }
+.queue-card h3 { margin: 0 0 4px; }
+.queue-card p { margin: 0; color: var(--muted); }
+.queue-amount { font-size: 20px; font-weight: 900; white-space: nowrap; }
+.queue-status { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; margin-top: 8px; }
+.queue-status.active { background: rgba(46,204,113,.14); color: #177a43; }
+.queue-status.ready { background: rgba(243,156,18,.16); color: #9a5d00; }
+.queue-status.waiting { background: rgba(23,54,93,.10); color: var(--navy); }
+.queue-bills { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.queue-bills-summary { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.queue-bills-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.queue-bill-chip { padding: 5px 8px; border-radius: 999px; background: rgba(23,54,93,.07); font-size: 12px; }
+.queue-bill-chip.overdue { background: rgba(231,76,60,.12); color: #a52d22; }
+.queue-empty { padding: 18px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); text-align: center; }
+@media (max-width: 620px) {
+  .queue-card-head { align-items: stretch; }
+  .queue-amount { text-align: right; }
+  .queue-bills-summary { display: grid; }
+}

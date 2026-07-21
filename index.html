@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#17365D" />
-  <link rel="stylesheet" href="styles.css?v=master1" />
+  <link rel="stylesheet" href="styles.css?v=mission12" />
   <title>FOS — Personal Financial Operating System</title>
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -99,24 +99,19 @@
         </article>
       </div>
 
-      <section class="panel forecast-panel">
+      <section class="panel mission-queue-panel">
         <div class="panel-heading">
           <div>
-            <span class="eyebrow">Future cash flow</span>
-            <h2>Next two expected incomes</h2>
+            <span class="eyebrow">Mission queue</span>
+            <h2>What happens next</h2>
           </div>
           <div class="right">
-            <span class="eyebrow">Expected total</span>
+            <span class="eyebrow">Expected income</span>
             <strong id="expectedIncomeTotal">$0.00</strong>
           </div>
         </div>
-        <div id="expectedIncomeForecast" class="forecast-list"></div>
-      </section>
-
-      <section class="panel">
-        <span class="eyebrow">Recent missions</span>
-        <h2>Mission history</h2>
-        <div id="missionHistory" class="list"></div>
+        <p class="panel-intro">Each expected income becomes one mission. FOS shows the bills that mission needs to protect before the following income arrives.</p>
+        <div id="missionQueue" class="mission-queue"></div>
       </section>
     </section>
 
