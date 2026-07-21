@@ -493,4 +493,4 @@ function populateSettings(){for(const [id,key] of [["mode","mode"],["taxRate","t
 window.addEventListener("load",()=>{loadState();populateSettings();renderAll();});
 
 // Exposed only for automated verification; harmless in production.
-window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);},calculateBillsDueBeforePayday,addCycle,markBillPaid:window.markBillPaid,initMission,commitCurrentStep};
+window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},calculateBillsDueBeforePayday,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation};
