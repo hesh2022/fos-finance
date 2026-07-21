@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#17365D" />
-  <link rel="stylesheet" href="styles.css?v=mission12" />
+  <link rel="stylesheet" href="styles.css?v=mission13" />
   <title>FOS — Personal Financial Operating System</title>
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -38,7 +38,6 @@
     <div class="header-actions">
       <span id="cloudStatus" class="cloud-status" data-tone="neutral">Starting cloud…</span>
       <button id="cloudLogoutBtn" class="ghost-btn hidden">Sign out</button>
-      <button id="resetBtn" class="ghost-btn">Reset</button>
     </div>
   </header>
 
@@ -46,7 +45,7 @@
     <!-- HOME -->
     <section id="homeScreen" class="screen active">
       <section class="mission-control-card">
-        <span class="eyebrow">Mission control</span>
+        <span class="eyebrow">Today's focus</span>
         <div id="activeMissionState">
           <div class="status-line">
             <div id="missionStateDot" class="health-dot warning"></div>
@@ -58,7 +57,7 @@
 
           <div class="mission-summary">
             <div>
-              <span class="eyebrow">Income</span>
+              <span class="eyebrow">Current mission</span>
               <strong id="missionIncomeSource">—</strong>
             </div>
             <div class="right">
@@ -106,11 +105,11 @@
             <h2>What happens next</h2>
           </div>
           <div class="right">
-            <span class="eyebrow">Expected income</span>
+            <span class="eyebrow">Waiting missions</span>
             <strong id="expectedIncomeTotal">$0.00</strong>
           </div>
         </div>
-        <p class="panel-intro">Each expected income becomes one mission. FOS shows the bills that mission needs to protect before the following income arrives.</p>
+        
         <div id="missionQueue" class="mission-queue"></div>
       </section>
     </section>
@@ -126,73 +125,58 @@
           <button id="backHomeBtn" class="ghost-dark-btn">Back</button>
         </div>
 
-        <div class="progress-wrap">
-          <div class="progress-track"><div id="missionProgress" class="progress-fill"></div></div>
-          <span id="missionProgressText">0%</span>
-        </div>
+        <div id="missionEmpty" class="empty-state">Select a mission below, then start it when the payment arrives.</div>
 
-        <div id="closePreviousMission" class="close-mission-card hidden">
-          <span class="eyebrow">Close previous mission</span>
-          <h2>How much Safe to Spend money is left?</h2>
-          <p>Check the balance of your spending account and enter what remains.</p>
-          <form id="closePreviousMissionForm" class="form-grid compact">
-            <label>
-              Amount remaining (AUD)
-              <input id="previousLifestyleRemaining" type="number" min="0" step="0.01" required />
-            </label>
-            <button type="submit" class="primary-btn full">Continue</button>
-          </form>
-        </div>
+        <div id="missionReview" class="allocation-review hidden">
+          <div class="received-summary">
+            <div><span class="eyebrow">Expected</span><strong id="reviewExpectedAmount">$0.00</strong></div>
+            <label>Amount received<input id="reviewReceivedAmount" type="number" min="0" step="0.01" /></label>
+          </div>
 
-        <div id="missionEmpty" class="empty-state">
-          Add or select an income below to generate a mission.
-        </div>
+          <h3>Review proposed allocation</h3>
+          <p class="review-note">Change any amount before confirming. Nothing moves until you confirm.</p>
+          <div class="allocation-grid">
+            <label>Tax<input id="allocationTax" type="number" min="0" step="0.01" /></label>
+            <label>Bills<input id="allocationBills" type="number" min="0" step="0.01" readonly /></label>
+            <label>Emergency<input id="allocationEmergency" type="number" min="0" step="0.01" /></label>
+            <label>Gold<input id="allocationGold" type="number" min="0" step="0.01" /></label>
+            <label>Main account<input id="allocationMain" type="number" min="0" step="0.01" readonly /></label>
+          </div>
 
-        <div id="missionCard" class="mission-card hidden">
-          <span id="missionStepLabel" class="eyebrow">Step 1 of 4</span>
-          <h2 id="missionAction">Reserve Tax</h2>
-          <div id="missionAmount" class="mission-amount">$0</div>
-          <p id="missionDescription">Move this amount to your Tax account.</p>
-          <div id="missionWhy" class="reason-box"></div>
-          <button id="missionAcceptBtn" class="primary-btn large">Accept recommendation</button>
-          <button id="missionAdjustBtn" class="text-btn">Adjust amount</button>
+          <div class="protected-bills-box">
+            <div class="panel-heading"><div><span class="eyebrow">One bill · one mission</span><h3>Bills protected by this mission</h3></div><strong id="selectedBillsTotal">$0.00</strong></div>
+            <div id="missionBillChoices" class="bill-choice-list"></div>
+          </div>
 
-          <form id="missionAdjustForm" class="adjust-form hidden">
-            <label>
-              Amount to move (AUD)
-              <input id="missionAdjustedAmount" type="number" min="0" step="0.01" required />
-            </label>
-            <div class="form-actions">
-              <button type="submit" class="primary-btn">Save adjustment</button>
-              <button type="button" id="cancelMissionAdjustBtn" class="ghost-dark-btn">Cancel</button>
-            </div>
-            <small id="adjustmentHint"></small>
-          </form>
+          <div id="allocationFeedback" class="allocation-feedback status-orange">Review the proposed allocation.</div>
+          <div class="allocation-total-row"><span>Total allocated</span><strong id="allocationTotal">$0.00</strong></div>
+          <div class="allocation-total-row"><span>Remaining</span><strong id="allocationRemaining">$0.00</strong></div>
+          <div class="form-actions">
+            <button id="resetAllocationBtn" type="button" class="ghost-dark-btn">Reset suggestion</button>
+            <button id="confirmAllocationBtn" type="button" class="primary-btn">Confirm allocation</button>
+            <button id="cancelMissionBtn" type="button" class="text-btn">Cancel</button>
+          </div>
         </div>
 
         <div id="missionComplete" class="complete-card hidden">
           <div class="checkmark">✓</div>
           <span class="mission-stamp">MISSION COMPLETE</span>
-          <h2>Everything important is covered</h2>
-          <p id="missionProtectedUntil">Protected until your next payday.</p>
+          <h2>Allocation confirmed</h2>
+          <p id="missionProtectedUntil">The selected bills are reserved.</p>
           <div class="completion-summary">
             <div><span>Tax</span><strong id="summaryTax">$0</strong></div>
             <div><span>Bills</span><strong id="summaryBills">$0</strong></div>
             <div><span>Emergency</span><strong id="summaryEmergency">$0</strong></div>
             <div><span>Gold</span><strong id="summaryGold">$0</strong></div>
-            <div class="safe">
-              <span>Safe to spend</span>
-              <strong id="summarySpend">$0</strong>
-              <small id="summarySpendGuide"></small>
-            </div>
+            <div><span>Main account</span><strong id="summarySpend">$0</strong></div>
           </div>
           <button id="finishMissionBtn" class="primary-btn">Finish</button>
         </div>
       </section>
 
       <section class="panel">
-        <span class="eyebrow">Expected income planner</span>
-        <h2>Add an expected payment</h2>
+        <span class="eyebrow">New mission</span>
+        <h2>Add expected income</h2>
         <form id="incomeForm" class="form-grid">
           <input id="editingIncomeId" type="hidden" />
           <label>
@@ -421,8 +405,8 @@
   </nav>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=income1"></script>
-  <script src="app.js?v=income1"></script>
-  <script src="cloud.js?v=income1"></script>
+  <script src="config.js?v=mission13"></script>
+  <script src="app.js?v=mission13"></script>
+  <script src="cloud.js?v=mission13"></script>
 </body>
 </html>

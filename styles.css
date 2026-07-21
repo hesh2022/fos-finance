@@ -386,3 +386,19 @@ input, select {
   .queue-amount { text-align: right; }
   .queue-bills-summary { display: grid; }
 }
+
+
+/* FOS v1.3 — calm three-colour action language */
+:root{--status-green:#2f855a;--status-green-bg:#e8f6ee;--status-orange:#b25c00;--status-orange-bg:#fff2df;--status-red:#b42318;--status-red-bg:#fdebea}
+.allocation-review{border:1px solid var(--border);border-radius:18px;padding:22px;background:#fff}
+.received-summary,.allocation-total-row{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:14px 0;border-bottom:1px solid var(--border)}
+.received-summary strong{font-size:26px;display:block;margin-top:5px}.received-summary label{max-width:220px}
+.review-note{color:var(--muted);margin-top:-8px}.allocation-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:18px 0}.allocation-grid input{font-weight:800;font-size:17px}
+.protected-bills-box{border:1px solid var(--border);border-radius:14px;padding:16px;margin:18px 0}.bill-choice{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--border);cursor:pointer}.bill-choice input{width:19px;height:19px}.bill-choice small{display:block;color:var(--muted);margin-top:3px}
+.allocation-feedback{padding:13px 15px;border-radius:12px;font-weight:800;margin:14px 0}.status-green{background:var(--status-green-bg);color:var(--status-green)}.status-orange{background:var(--status-orange-bg);color:var(--status-orange)}.status-red{background:var(--status-red-bg);color:var(--status-red)}
+.status-badge{display:inline-block;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:900}.status-badge.green{background:var(--status-green-bg);color:var(--status-green)}.status-badge.orange{background:var(--status-orange-bg);color:var(--status-orange)}.status-badge.red{background:var(--status-red-bg);color:var(--status-red)}
+.bill-title-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.bill-item{border-left:4px solid transparent;padding-left:14px}.bill-item.status-green{border-left-color:var(--status-green)}.bill-item.status-orange{border-left-color:var(--status-orange)}.bill-item.status-red{border-left-color:var(--status-red)}
+.queue-card{padding:16px}.queue-card.ready{border-left:4px solid var(--status-orange)}.queue-card.active{border-left:4px solid var(--status-orange)}.queue-status.ready,.queue-status.active{background:var(--status-orange-bg);color:var(--status-orange)}.queue-status.waiting{background:#eef1f4;color:#5b6573}
+button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:800px){.allocation-grid{grid-template-columns:1fr 1fr}.received-summary{align-items:flex-end}.allocation-review{padding:16px}}
+@media(max-width:480px){.allocation-grid{grid-template-columns:1fr}.received-summary{display:grid}.received-summary label{max-width:none}.allocation-review .form-actions{display:grid}}

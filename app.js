@@ -21,7 +21,7 @@ const DEFAULT_STATE = {
   bills: [],
   transfers: [],
   activeMission: null,
-  schemaVersion: 4
+  schemaVersion: 5
 };
 
 let state = clone(DEFAULT_STATE);
@@ -94,13 +94,15 @@ function migrateState(raw) {
     name: String(b.name || "Bill"), currency: b.currency === "EGP" ? "EGP" : "AUD",
     amount: round2(b.amount), category: String(b.category || "Living"),
     dueDate: b.dueDate || todayISO(), recurring: normalizeFrequency(b.recurring),
-    status: b.status === "Paid" ? "Paid" : "Unpaid",
+    status: ["Paid","Reserved","Unpaid"].includes(b.status) ? b.status : "Unpaid",
     lastPaidDate: b.lastPaidDate || null,
-    paidForDueDate: b.paidForDueDate || null
+    paidForDueDate: b.paidForDueDate || null,
+    missionId: b.missionId || null,
+    reservedAt: b.reservedAt || null
   })) : [];
   next.transfers = Array.isArray(raw.transfers) ? raw.transfers : [];
   next.activeMission = raw.activeMission && typeof raw.activeMission === "object" ? raw.activeMission : null;
-  next.schemaVersion = 4;
+  next.schemaVersion = 5;
   return next;
 }
 
@@ -276,107 +278,130 @@ function calculateBillsDueBeforePayday(paydayValue = null) {
   return { gross, total: Math.max(0, round2(gross - state.accounts.bills)), count };
 }
 
-const steps = { TAX:1, BILLS:2, EMERGENCY:3, GOLD:4, COMPLETE:5 };
+function missionWindowEnd(income) {
+  const future = getExpectedIncomes().filter(i => i.id !== income.id && i.date > income.date);
+  return future[0]?.date || null;
+}
+function eligibleBillsForMission(income) {
+  const end = missionWindowEnd(income);
+  return state.bills
+    .filter(b => b.status !== "Paid" && !b.missionId)
+    .filter(b => !end || b.dueDate < end)
+    .sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+}
+function emergencyPercent() {
+  if (state.policy.mode === "Growth") return Number(state.policy.growthEmergencyPct) || 0;
+  if (state.policy.mode === "Wealth") return Number(state.policy.wealthEmergencyPct) || 0;
+  return Number(state.policy.stabilityEmergencyPct) || 0;
+}
+function makeSuggestedAllocation(income) {
+  const received = round2(income.amount);
+  const tax = income.taxDeducted === "Yes" ? 0 : round2(received * Number(state.policy.taxRate || 0) / 100);
+  let available = Math.max(0, round2(received - tax));
+  const selectedBillIds = [];
+  let bills = 0;
+  for (const bill of eligibleBillsForMission(income)) {
+    const amount = getBillAmountInAUD(bill);
+    if (round2(bills + amount) <= available + 0.0001) { selectedBillIds.push(bill.id); bills = round2(bills + amount); }
+  }
+  available = Math.max(0, round2(available - bills));
+  const emergencyGap = Math.max(0, round2(Number(state.policy.emergencyTarget || 0) - state.accounts.emergency));
+  const emergency = Math.min(available, emergencyGap, round2(available * emergencyPercent() / 100));
+  available = Math.max(0, round2(available - emergency));
+  return { received, tax, bills, emergency, gold: 0, main: available, selectedBillIds };
+}
 function initMission(income) {
   if (state.activeMission) { navigateTo("paydayScreen"); return; }
-  if (income.status === "Processed") return;
-  const alreadyCredited = state.transfers.some(t => t.incomeId === income.id && t.from === "EXTERNAL" && t.to === "Main");
-  if (!alreadyCredited) {
-    if (!executeTransfer("EXTERNAL", "Main", income.amount, `Income: ${income.source}`, { incomeId: income.id })) return;
-  }
+  if (!income || income.status === "Processed") return;
   income.status = "Processing";
   state.activeMission = {
     incomeId: income.id, incomeAmount: round2(income.amount), incomeSource: income.source,
-    taxDeducted: income.taxDeducted, step: steps.TAX,
-    completedAllocations: { tax:0, bills:0, emergency:0, gold:0 }, currentRecommendation: 0
+    taxDeducted: income.taxDeducted, confirmed: false,
+    allocation: makeSuggestedAllocation(income)
   };
   persistState(); navigateTo("paydayScreen");
 }
+function allocationFromInputs() {
+  const received = round2(document.getElementById("reviewReceivedAmount")?.value);
+  const tax = round2(document.getElementById("allocationTax")?.value);
+  const emergency = round2(document.getElementById("allocationEmergency")?.value);
+  const gold = round2(document.getElementById("allocationGold")?.value);
+  const selectedBillIds = [...document.querySelectorAll('.mission-bill-checkbox:checked')].map(x => x.value);
+  const bills = round2(selectedBillIds.reduce((sum,id)=>{
+    const bill=state.bills.find(b=>b.id===id); return sum+(bill?getBillAmountInAUD(bill):0);
+  },0));
+  const main = round2(received - tax - bills - emergency - gold);
+  return { received, tax, bills, emergency, gold, main, selectedBillIds };
+}
+function syncAllocationReview() {
+  const am=state.activeMission; if(!am || am.confirmed) return;
+  const a=allocationFromInputs(); am.allocation=a;
+  const total=round2(a.tax+a.bills+a.emergency+a.gold+Math.max(0,a.main));
+  const remaining=round2(a.received-a.tax-a.bills-a.emergency-a.gold-Math.max(0,a.main));
+  document.getElementById("allocationBills").value=a.bills.toFixed(2);
+  document.getElementById("allocationMain").value=Math.max(0,a.main).toFixed(2);
+  document.getElementById("selectedBillsTotal").textContent=`$${a.bills.toFixed(2)}`;
+  document.getElementById("allocationTotal").textContent=`$${total.toFixed(2)}`;
+  document.getElementById("allocationRemaining").textContent=`$${remaining.toFixed(2)}`;
+  const feedback=document.getElementById("allocationFeedback"), confirm=document.getElementById("confirmAllocationBtn");
+  const invalid=[a.received,a.tax,a.emergency,a.gold].some(v=>v<0) || a.main < -0.0001;
+  if(invalid){ feedback.className="allocation-feedback status-red"; feedback.textContent="Allocation exceeds the amount received. Reduce one or more amounts."; confirm.disabled=true; }
+  else if(Math.abs(remaining)>0.009){ feedback.className="allocation-feedback status-orange"; feedback.textContent="Some money is not balanced yet. Review the figures."; confirm.disabled=true; }
+  else { feedback.className="allocation-feedback status-green"; feedback.textContent="Balanced and ready to confirm."; confirm.disabled=false; }
+  persistState(false);
+}
+function populateAllocationInputs(a) {
+  document.getElementById("reviewExpectedAmount").textContent=`$${round2(state.activeMission.incomeAmount).toFixed(2)}`;
+  document.getElementById("reviewReceivedAmount").value=round2(a.received).toFixed(2);
+  document.getElementById("allocationTax").value=round2(a.tax).toFixed(2);
+  document.getElementById("allocationEmergency").value=round2(a.emergency).toFixed(2);
+  document.getElementById("allocationGold").value=round2(a.gold).toFixed(2);
+  document.getElementById("allocationBills").value=round2(a.bills).toFixed(2);
+  document.getElementById("allocationMain").value=Math.max(0,round2(a.main)).toFixed(2);
+}
 function renderMission() {
-  const am = state.activeMission;
-  const empty = document.getElementById("missionEmpty");
-  const previous = document.getElementById("closePreviousMission");
-  const card = document.getElementById("missionCard");
-  const complete = document.getElementById("missionComplete");
-  if (!am) {
-    empty?.classList.remove("hidden"); previous?.classList.add("hidden"); card?.classList.add("hidden"); complete?.classList.add("hidden"); return;
+  const am=state.activeMission, empty=document.getElementById("missionEmpty"), review=document.getElementById("missionReview"), complete=document.getElementById("missionComplete");
+  if(!am){ empty?.classList.remove("hidden"); review?.classList.add("hidden"); complete?.classList.add("hidden"); return; }
+  empty?.classList.add("hidden"); document.getElementById("missionHeading").textContent=`Mission: ${am.incomeSource}`;
+  if(am.confirmed){ review.classList.add("hidden"); complete.classList.remove("hidden"); const a=am.allocation;
+    document.getElementById("summaryTax").textContent=`$${a.tax.toFixed(2)}`; document.getElementById("summaryBills").textContent=`$${a.bills.toFixed(2)}`;
+    document.getElementById("summaryEmergency").textContent=`$${a.emergency.toFixed(2)}`; document.getElementById("summaryGold").textContent=`$${a.gold.toFixed(2)}`;
+    document.getElementById("summarySpend").textContent=`$${a.main.toFixed(2)}`; return;
   }
-  empty?.classList.add("hidden"); previous?.classList.add("hidden");
-  document.getElementById("missionHeading").textContent = `Mission: ${am.incomeSource}`;
-  if (am.step === steps.COMPLETE) {
-    card.classList.add("hidden"); complete.classList.remove("hidden");
-    document.getElementById("summaryTax").textContent = `$${round2(am.completedAllocations.tax).toFixed(2)}`;
-    document.getElementById("summaryBills").textContent = `$${round2(am.completedAllocations.bills).toFixed(2)}`;
-    document.getElementById("summaryEmergency").textContent = `$${round2(am.completedAllocations.emergency).toFixed(2)}`;
-    document.getElementById("summaryGold").textContent = `$${round2(am.completedAllocations.gold).toFixed(2)}`;
-    document.getElementById("missionProtectedUntil").innerHTML = `<div style="text-align:center"><strong style="color:#2ecc71">✔ MISSION COMPLETE</strong><p>Available to spend: <strong>$${state.accounts.main.toFixed(2)}</strong></p></div>`;
-    return;
-  }
-  card.classList.remove("hidden"); complete.classList.add("hidden");
-  const main = state.accounts.main;
-  let stepLabel="", action="", rec=0, description="", why="";
-  if (am.step === steps.TAX) {
-    stepLabel="Step 1 of 4"; action="Reserve Tax";
-    rec = am.taxDeducted === "Yes" ? 0 : Math.min(main, round2(am.incomeAmount * Number(state.policy.taxRate) / 100));
-    description="Move tax allocation from Main to Tax account."; why=`Calculated at ${state.policy.taxRate}% of this income.`;
-  } else if (am.step === steps.BILLS) {
-    stepLabel="Step 2 of 4"; action="Fund Upcoming Bills";
-    rec = Math.min(main, calculateBillsDueBeforePayday().total);
-    description="Transfer only the outstanding Bills-account deficit."; why="Existing Bills balance is deducted from the amount required before payday.";
-  } else if (am.step === steps.EMERGENCY) {
-    stepLabel="Step 3 of 4"; action="Build Emergency Fund";
-    let pct = Number(state.policy.stabilityEmergencyPct);
-    if (state.policy.mode === "Growth") pct = Number(state.policy.growthEmergencyPct);
-    if (state.policy.mode === "Wealth") pct = Number(state.policy.wealthEmergencyPct);
-    const targetGap = Math.max(0, round2(Number(state.policy.emergencyTarget) - state.accounts.emergency));
-    rec = Math.min(main, targetGap, round2(main * pct / 100));
-    description="Commit a defensive buffer allocation."; why=`${state.policy.mode} mode: ${pct}% of remaining Main, capped at the emergency target.`;
-  } else {
-    stepLabel="Step 4 of 4"; action="Fund Gold"; rec=0;
-    description="Choose any amount for Gold; the remainder stays in Main."; why="This step is optional.";
-  }
-  am.currentRecommendation = round2(rec);
-  document.getElementById("missionStepLabel").textContent=stepLabel;
-  document.getElementById("missionAction").textContent=action;
-  document.getElementById("missionAmount").textContent=`$${am.currentRecommendation.toFixed(2)}`;
-  document.getElementById("missionDescription").textContent=description;
-  document.getElementById("missionWhy").textContent=why;
+  review.classList.remove("hidden"); complete.classList.add("hidden"); const income=state.incomes.find(i=>i.id===am.incomeId); const a=am.allocation||makeSuggestedAllocation(income);
+  populateAllocationInputs(a);
+  const c=document.getElementById("missionBillChoices"); c.innerHTML="";
+  const bills=eligibleBillsForMission(income);
+  if(!bills.length)c.innerHTML='<div class="empty-state">No unassigned bills need protection in this mission window.</div>';
+  bills.forEach(b=>{const row=document.createElement("label");row.className="bill-choice";row.innerHTML=`<input class="mission-bill-checkbox" type="checkbox" value="${b.id}" ${a.selectedBillIds.includes(b.id)?"checked":""}><span><strong>${escapeHTML(b.name)}</strong><small>Due ${formatDisplayDate(b.dueDate)}</small></span><strong>$${getBillAmountInAUD(b).toFixed(2)}</strong>`;c.appendChild(row);});
+  syncAllocationReview();
 }
-function commitCurrentStep(value) {
-  const am = state.activeMission; if (!am) return;
-  const amt = Math.max(0, Math.min(state.accounts.main, round2(value)));
-  let key, to, memo, next;
-  if (am.step === steps.TAX) { key="tax"; to="Tax"; memo="Payday Tax"; next=steps.BILLS; }
-  else if (am.step === steps.BILLS) { key="bills"; to="Bills"; memo="Payday Bills"; next=steps.EMERGENCY; }
-  else if (am.step === steps.EMERGENCY) { key="emergency"; to="Emergency"; memo="Payday Buffer"; next=steps.GOLD; }
-  else { key="gold"; to="Gold"; memo="Payday Gold"; next=steps.COMPLETE; }
-  if (amt > 0 && !executeTransfer("Main", to, amt, `${memo}: ${am.incomeSource}`, { incomeId:am.incomeId })) {
-    notify("Transfer failed. Check the available Main balance."); return;
+function confirmAllocation() {
+  const am=state.activeMission; if(!am||am.confirmed)return; const a=allocationFromInputs();
+  if(a.main < -0.0001)return notify("Allocation exceeds the amount received.");
+  if(!executeTransfer("EXTERNAL","Main",a.received,`Income received: ${am.incomeSource}`,{incomeId:am.incomeId}))return;
+  for(const [amount,to,memo] of [[a.tax,"Tax","Mission tax"],[a.bills,"Bills","Mission bills"],[a.emergency,"Emergency","Mission emergency"],[a.gold,"Gold","Mission gold"]]){
+    if(amount>0&&!executeTransfer("Main",to,amount,`${memo}: ${am.incomeSource}`,{incomeId:am.incomeId}))return notify("Allocation could not be completed.");
   }
-  am.completedAllocations[key] = amt; am.step = next;
-  if (next === steps.COMPLETE) {
-    const income = state.incomes.find(i => i.id === am.incomeId); if (income) income.status="Processed";
-  }
-  persistState(); renderMission();
+  a.selectedBillIds.forEach(id=>{const b=state.bills.find(x=>x.id===id);if(b){b.missionId=am.incomeId;b.status="Reserved";b.reservedAt=new Date().toISOString();}});
+  am.allocation=a; am.confirmed=true; const income=state.incomes.find(i=>i.id===am.incomeId); if(income)income.status="Processed"; persistState();
 }
-document.getElementById("missionAcceptBtn")?.addEventListener("click", () => commitCurrentStep(state.activeMission?.currentRecommendation || 0));
-document.getElementById("missionAdjustBtn")?.addEventListener("click", () => {
-  document.getElementById("missionAdjustForm").classList.remove("hidden");
-  document.getElementById("missionAdjustedAmount").value=(state.activeMission?.currentRecommendation || 0).toFixed(2);
-});
-document.getElementById("missionAdjustForm")?.addEventListener("submit", e => { e.preventDefault(); document.getElementById("missionAdjustForm").classList.add("hidden"); commitCurrentStep(document.getElementById("missionAdjustedAmount").value); });
-document.getElementById("cancelMissionAdjustBtn")?.addEventListener("click", () => document.getElementById("missionAdjustForm").classList.add("hidden"));
-document.getElementById("finishMissionBtn")?.addEventListener("click", () => { state.activeMission=null; persistState(); navigateTo("homeScreen"); });
+["reviewReceivedAmount","allocationTax","allocationEmergency","allocationGold"].forEach(id=>document.getElementById(id)?.addEventListener("input",syncAllocationReview));
+document.getElementById("missionBillChoices")?.addEventListener("change",syncAllocationReview);
+document.getElementById("resetAllocationBtn")?.addEventListener("click",()=>{const i=state.incomes.find(x=>x.id===state.activeMission?.incomeId);if(i){state.activeMission.allocation=makeSuggestedAllocation(i);renderMission();}});
+document.getElementById("confirmAllocationBtn")?.addEventListener("click",confirmAllocation);
+document.getElementById("cancelMissionBtn")?.addEventListener("click",()=>{const i=state.incomes.find(x=>x.id===state.activeMission?.incomeId);if(i)i.status="Pending";state.activeMission=null;persistState();navigateTo("homeScreen");});
+document.getElementById("finishMissionBtn")?.addEventListener("click",()=>{state.activeMission=null;persistState();navigateTo("homeScreen");});
 
 window.markBillPaid = function(id) {
-  const bill = state.bills.find(b => b.id === id);
-  if (!bill || bill.status === "Paid") return;
-  const amount = getBillAmountInAUD(bill);
-  if (state.accounts.bills + 0.0001 < amount) { notify(`The Bills account contains $${state.accounts.bills.toFixed(2)}, but this bill requires $${amount.toFixed(2)}.`); return; }
-  const paidDueDate = bill.dueDate;
-  if (!executeTransfer("Bills", "EXTERNAL", amount, `Bill paid: ${bill.name}`, { type:"BILL_PAYMENT", billId:bill.id })) return;
-  bill.status="Paid"; bill.lastPaidDate=new Date().toISOString(); bill.paidForDueDate=paidDueDate;
-  if (normalizeFrequency(bill.recurring) !== "One-off") bill.dueDate=addCycle(paidDueDate, bill.recurring);
+  const bill=state.bills.find(b=>b.id===id); if(!bill||bill.status==="Paid")return;
+  if(bill.status!=="Reserved"||!bill.missionId){notify("This bill must be reserved by a mission before it can be paid.");return;}
+  const amount=getBillAmountInAUD(bill); if(state.accounts.bills+0.0001<amount){notify(`The Bills account contains $${state.accounts.bills.toFixed(2)}, but this bill requires $${amount.toFixed(2)}.`);return;}
+  if(!executeTransfer("Bills","EXTERNAL",amount,`Bill paid: ${bill.name}`,{type:"BILL_PAYMENT",billId:bill.id,incomeId:bill.missionId}))return;
+  bill.status="Paid";bill.lastPaidDate=new Date().toISOString();bill.paidForDueDate=bill.dueDate;
+  if(normalizeFrequency(bill.recurring)!=="One-off"){
+    state.bills.push({...bill,id:`BILL-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,dueDate:addCycle(bill.dueDate,bill.recurring),status:"Unpaid",missionId:null,reservedAt:null,lastPaidDate:null,paidForDueDate:null});
+  }
   persistState();
 };
 
@@ -400,7 +425,7 @@ function renderAll() {
   if (pending && !state.activeMission) {
     const isDue = pending.date <= todayISO();
     $("missionStateDot").className=`health-dot ${isDue ? "warning" : "success"}`;
-    $("missionStateTitle").textContent=isDue ? "Income Ready" : "Next Expected Income";
+    $("missionStateTitle").textContent=isDue ? "Allocate received payment" : "Waiting for payment";
     $("missionStateSub").textContent=isDue
       ? `“${pending.source}” can now be processed.`
       : `${pending.source} is expected on ${formatDisplayDate(pending.date)}.`;
@@ -409,53 +434,30 @@ function renderAll() {
     $("startMissionBtn").textContent=isDue ? "Start Mission" : "Mark Received & Start";
     $("startMissionBtn").onclick=()=>initMission(pending);
   } else {
-    $("missionStateDot").className="health-dot success"; $("missionStateTitle").textContent="All Systems Clear";
-    $("missionStateSub").textContent=state.activeMission ? "A payday mission is in progress." : "All income sources are allocated.";
+    $("missionStateDot").className="health-dot success"; $("missionStateTitle").textContent="No urgent actions today";
+    $("missionStateSub").textContent=state.activeMission ? "Review and confirm the current mission." : "Everything is currently up to date.";
     $("missionIncomeSource").textContent="—"; $("missionIncomeAmount").textContent="$0"; $("startMissionBtn").textContent=state.activeMission ? "Open Mission" : "Start Mission"; $("startMissionBtn").onclick=state.activeMission ? ()=>navigateTo("paydayScreen") : null;
   }
   renderMissionQueue(); renderMission(); renderBillsList(); renderIncomeList(); renderTransferHistory();
 }
 function escapeHTML(v) { return String(v).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
-function renderMissionQueue() {
-  const container = document.getElementById("missionQueue");
-  const totalEl = document.getElementById("expectedIncomeTotal");
-  if (!container) return;
-  const pending = getExpectedIncomes();
-  const total = pending.reduce((sum, income) => sum + round2(income.amount), 0);
-  if (totalEl) totalEl.textContent = `$${total.toFixed(2)}`;
-  const items = getMissionQueueItems();
-  container.innerHTML = "";
-  if (!items.length) {
-    container.innerHTML = '<div class="queue-empty">No missions are waiting. Add an expected income on the Payday screen.</div>';
-    return;
-  }
-  items.forEach((item, index) => {
-    const income = item.income;
-    const windowStart = income.date || todayISO();
-    const windowEnd = item.nextIncome?.date || null;
-    const bills = getUnpaidBillsInWindow(windowStart, windowEnd);
-    const totalBills = round2(bills.reduce((sum, entry) => sum + entry.amount, 0));
-    const statusText = item.status === "active" ? "Active mission" : item.status === "ready" ? "Payment due — ready to start" : index === 0 && !state.activeMission ? "Next mission" : "Waiting";
-    const protectionText = windowEnd ? `Bills until ${formatDisplayDate(windowEnd)}` : "Bills after this income";
-    const billChips = bills.length
-      ? bills.slice(0, 4).map(entry => `<span class="queue-bill-chip ${entry.dueDate < todayISO() ? "overdue" : ""}">${escapeHTML(entry.bill.name)} · ${formatDisplayDate(entry.dueDate)}</span>`).join("") + (bills.length > 4 ? `<span class="queue-bill-chip">+${bills.length - 4} more</span>` : "")
-      : '<span class="queue-bill-chip">No unpaid bills in this period</span>';
-    const card = document.createElement("article");
-    card.className = `queue-card ${item.status === "active" ? "active" : ""}`;
-    card.innerHTML = `<div class="queue-card-head"><div class="queue-card-title"><span class="queue-position">${index + 1}</span><div><h3>${escapeHTML(income.source)}</h3><p>${formatDisplayDate(income.date)}</p><span class="queue-status ${item.status}">${statusText}</span></div></div><div class="queue-amount">$${round2(income.amount).toFixed(2)}</div></div><div class="queue-bills"><div class="queue-bills-summary"><strong>${protectionText}</strong><span>${bills.length} bill${bills.length === 1 ? "" : "s"} · $${totalBills.toFixed(2)}</span></div><div class="queue-bills-list">${billChips}</div></div>`;
-    container.appendChild(card);
-  });
+function billVisualStatus(b){
+  if(b.status==="Paid")return {label:"Paid",tone:"green"};
+  if(b.status==="Reserved")return {label:"Reserved",tone:"orange"};
+  if(b.dueDate<todayISO())return {label:"Overdue",tone:"red"};
+  return {label:"Needs funding",tone:"red"};
 }
-
+function renderMissionQueue() {
+  const container=document.getElementById("missionQueue"),totalEl=document.getElementById("expectedIncomeTotal");if(!container)return;
+  const pending=getExpectedIncomes(),total=pending.reduce((s,i)=>s+round2(i.amount),0);if(totalEl)totalEl.textContent=`$${total.toFixed(2)}`;
+  const items=getMissionQueueItems();container.innerHTML="";if(!items.length){container.innerHTML='<div class="queue-empty">No missions are waiting.</div>';return;}
+  items.slice(0,4).forEach((item,index)=>{const income=item.income,end=item.nextIncome?.date||null;const bills=state.bills.filter(b=>b.status!=="Paid"&&!b.missionId&&(!end||b.dueDate<end)).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+    const statusText=item.status==="active"?"Active":item.status==="ready"?"Ready":"Waiting";const chips=bills.length?bills.slice(0,3).map(b=>`<span class="queue-bill-chip">${escapeHTML(b.name)}</span>`).join("")+(bills.length>3?`<span class="queue-bill-chip">+${bills.length-3} more</span>`:""):'<span class="queue-bill-chip">No bills assigned yet</span>';
+    const card=document.createElement("article");card.className=`queue-card ${item.status}`;card.innerHTML=`<div class="queue-card-head"><div class="queue-card-title"><span class="queue-position">${index+1}</span><div><h3>${escapeHTML(income.source)}</h3><p>${formatDisplayDate(income.date)}</p><span class="queue-status ${item.status}">${statusText}</span></div></div><div class="queue-amount">$${round2(income.amount).toFixed(2)}</div></div><div class="queue-bills"><div class="queue-bills-summary"><strong>Bills this mission may protect</strong><span>${bills.length} bill${bills.length===1?"":"s"}</span></div><div class="queue-bills-list">${chips}</div></div>`;container.appendChild(card);});
+}
 function renderBillsList() {
-  const c=document.getElementById("billsList"); c.innerHTML="";
-  if (!state.bills.length) { c.innerHTML='<div class="empty-state">No bills entered.</div>'; return; }
-  state.bills.forEach(b => {
-    const item=document.createElement("div"); item.className="list-item";
-    const paid=b.status === "Paid";
-    item.innerHTML=`<div><strong>${escapeHTML(b.name)} (${paid?"Paid":"Unpaid"})</strong><p>${escapeHTML(b.dueDate)} (${escapeHTML(normalizeFrequency(b.recurring))})</p></div><div class="right"><strong>$${getBillAmountInAUD(b).toFixed(2)} AUD</strong>${b.currency!=="AUD"?`<small>${round2(b.amount)} ${b.currency}</small>`:""}<div>${!paid?`<button class="text-btn success-text" onclick="markBillPaid('${b.id}')">Mark Paid</button>`:""}<button class="text-btn primary-text" onclick="editBill('${b.id}')">Edit</button><button class="text-btn danger-text" onclick="deleteBill('${b.id}')">Remove</button></div></div>`;
-    c.appendChild(item);
-  });
+  const c=document.getElementById("billsList");c.innerHTML="";if(!state.bills.length){c.innerHTML='<div class="empty-state">No bills entered.</div>';return;}
+  [...state.bills].sort((a,b)=>(a.status==="Paid")-(b.status==="Paid")||a.dueDate.localeCompare(b.dueDate)).forEach(b=>{const st=billVisualStatus(b),mission=state.incomes.find(i=>i.id===b.missionId);const item=document.createElement("div");item.className=`list-item bill-item status-${st.tone}`;item.innerHTML=`<div><div class="bill-title-row"><strong>${escapeHTML(b.name)}</strong><span class="status-badge ${st.tone}">${st.label}</span></div><p>Due ${formatDisplayDate(b.dueDate)} · ${escapeHTML(normalizeFrequency(b.recurring))}</p>${mission?`<small>Mission: ${escapeHTML(mission.source)}</small>`:""}</div><div class="right"><strong>$${getBillAmountInAUD(b).toFixed(2)} AUD</strong>${b.currency!=="AUD"?`<small>${round2(b.amount)} ${b.currency}</small>`:""}<div>${b.status==="Reserved"?`<button class="text-btn success-text" onclick="markBillPaid('${b.id}')">Mark Paid</button>`:""}<button class="text-btn primary-text" onclick="editBill('${b.id}')">Edit</button><button class="text-btn danger-text" onclick="deleteBill('${b.id}')">Remove</button></div></div>`;c.appendChild(item);});
 }
 function renderIncomeList() {
   const c=document.getElementById("incomeList"); c.innerHTML="";

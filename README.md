@@ -1,16 +1,5 @@
-# FOS — GitHub Pages Ready
+# FOS v1.3 — Review & Allocate
 
-Upload every file in this folder to the root of the existing `fos-finance` GitHub repository, replacing the older files. GitHub Pages should remain configured as `main` / `(root)`.
+Deploy the contents of this folder to GitHub Pages. Existing local and Supabase data is migrated to schema version 5.
 
-## Important
-The app saves data in the current browser using `localStorage`. Use **Policy → Export backup** regularly and before changing devices or clearing browser data.
-
-## Corrected
-- Income is credited once only.
-- Mission transfers are applied and saved immediately.
-- Bills funding uses the deficit after subtracting the current Bills balance.
-- Recurring bills remain Paid until their next due date arrives.
-- Weekly, fortnightly, monthly, quarterly, six-monthly and yearly cycles are supported.
-- Existing `One-time` bills are migrated safely to `One-off`.
-- Bills, balances, missions and settings persist locally.
-- JSON export/import and reset controls are included.
+Important behaviour: starting a mission only opens the proposed allocation. Account balances and bill reservations change only after confirmation.
