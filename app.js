@@ -22,7 +22,7 @@ const DEFAULT_STATE = {
   bills: [],
   transfers: [],
   activeMission: null,
-  schemaVersion: 6
+  schemaVersion: 7
 };
 
 let state = clone(DEFAULT_STATE);
@@ -114,7 +114,7 @@ function migrateState(raw) {
     a.main = round2(a.main);
     a.selectedBillIds = Array.isArray(a.selectedBillIds) ? a.selectedBillIds.map(String) : [];
   }
-  next.schemaVersion = 6;
+  next.schemaVersion = 7;
   return next;
 }
 
@@ -602,7 +602,7 @@ function renderIncomeList() {
 function renderTransferHistory() {
   const c=document.getElementById("transferHistory"); c.innerHTML="";
   if (!state.transfers.length) { c.innerHTML='<div class="empty-state">No recorded movements.</div>'; return; }
-  state.transfers.forEach(t => { const item=document.createElement("div"); item.className="list-item"; item.innerHTML=`<div><strong>${escapeHTML(t.memo||"")}</strong><p>${escapeHTML(t.date||"")} | ${escapeHTML(t.from||"")} → ${escapeHTML(t.to||"")}</p></div><div class="right"><strong>$${round2(t.amount).toFixed(2)} AUD</strong></div>`; c.appendChild(item); });
+  state.transfers.forEach(t => { const item=document.createElement("div"); item.className="list-item"; const route=t.type==="BALANCE_CORRECTION"&&t.accountKey?`${accountLabel(t.accountKey)}: $${round2(t.previousBalance).toFixed(2)} → $${round2(t.newBalance).toFixed(2)}`:`${t.from||""} → ${t.to||""}`; item.innerHTML=`<div><strong>${escapeHTML(t.memo||"")}</strong><p>${escapeHTML(t.date||"")} | ${escapeHTML(route)}</p></div><div class="right"><strong>$${round2(t.amount).toFixed(2)} AUD</strong><small>${escapeHTML(String(t.type||"TRANSFER").replaceAll("_"," "))}</small></div>`; c.appendChild(item); });
 }
 
 window.editBill=id=>{ const b=state.bills.find(x=>x.id===id); if(!b)return; for(const [field,val] of [["billName",b.name],["billCurrency",b.currency],["billAmount",b.amount],["billCategory",b.category],["billDueDate",b.dueDate],["billRecurring",normalizeFrequency(b.recurring)]]) document.getElementById(field).value=val; document.getElementById("billForm").dataset.editId=id; document.getElementById("billFormWrap").classList.remove("hidden"); };
@@ -615,7 +615,170 @@ document.getElementById("incomeForm")?.addEventListener("submit",e=>{ e.preventD
 document.getElementById("billForm")?.addEventListener("submit",e=>{ e.preventDefault(); const form=e.currentTarget,id=form.dataset.editId; const data={name:document.getElementById("billName").value.trim(),currency:document.getElementById("billCurrency").value,amount:round2(document.getElementById("billAmount").value),category:document.getElementById("billCategory").value,dueDate:document.getElementById("billDueDate").value,recurring:normalizeFrequency(document.getElementById("billRecurring").value)}; if(data.amount<=0)return notify("Enter a bill amount greater than zero."); if(id){const b=state.bills.find(x=>x.id===id);if(b)Object.assign(b,data);delete form.dataset.editId;}else state.bills.push({id:`BILL-${Date.now()}`,status:"Unpaid",lastPaidDate:null,paidForDueDate:null,...data}); form.reset(); document.getElementById("billFormWrap").classList.add("hidden"); persistState();});
 document.getElementById("toggleBillFormBtn")?.addEventListener("click",()=>{const f=document.getElementById("billForm");delete f.dataset.editId;f.reset();document.getElementById("billFormWrap").classList.toggle("hidden");});
 document.getElementById("cancelBillEditBtn")?.addEventListener("click",()=>{delete document.getElementById("billForm").dataset.editId;document.getElementById("billFormWrap").classList.add("hidden");});
-document.getElementById("mainReconcileForm")?.addEventListener("submit",e=>{e.preventDefault();const target=round2(document.getElementById("actualMainBalance").value);if(target<0)return;executeTransfer("SYSTEM","Main",target,"Manual Main balance reconciliation",{type:"RECONCILIATION"});e.currentTarget.reset();persistState();});
+
+const ACCOUNT_LABELS = {
+  main: "Main account",
+  bills: "Bills account",
+  emergency: "Emergency fund",
+  gold: "Gold fund",
+  sadaqah: "Sadaqah account",
+  tax: "Tax reserve"
+};
+let selectedAccountKey = "main";
+let undoSnapshot = null;
+let undoTimer = null;
+
+function accountLabel(key) { return ACCOUNT_LABELS[key] || String(key || "Account"); }
+function accountOptions(selected = "main") {
+  return Object.entries(ACCOUNT_LABELS).map(([key,label]) => `<option value="${key}"${key===selected?' selected':''}>${label}</option>`).join("");
+}
+function recordManualTransaction({from="SYSTEM",to="SYSTEM",amount=0,type="MANUAL",memo="",accountKey=null,previousBalance=null,newBalance=null}) {
+  const tx = {
+    id: `TX-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+    date: todayISO(), createdAt: new Date().toISOString(), from, to,
+    amount: Math.abs(round2(amount)), type, memo: String(memo || ""),
+    accountKey, previousBalance, newBalance
+  };
+  state.transfers.unshift(tx);
+  return tx;
+}
+function reservedBillsSortedLatestFirst() {
+  return state.bills.filter(b => b.status === "Reserved").sort((a,b) => String(b.dueDate||"").localeCompare(String(a.dueDate||"")));
+}
+function reservedBillsThatWouldLoseProtection(targetBillsBalance) {
+  let reservedTotal = round2(state.bills.filter(b=>b.status==="Reserved").reduce((sum,b)=>sum+getBillAmountInAUD(b),0));
+  const affected = [];
+  for (const bill of reservedBillsSortedLatestFirst()) {
+    if (reservedTotal <= targetBillsBalance + 0.0001) break;
+    affected.push(bill);
+    reservedTotal = round2(reservedTotal - getBillAmountInAUD(bill));
+  }
+  return affected;
+}
+function unreserveBillsToMatchBalance() {
+  const affected = reservedBillsThatWouldLoseProtection(state.accounts.bills);
+  affected.forEach(bill => {
+    bill.status = "Unpaid";
+    bill.missionId = null;
+    bill.reservedAt = null;
+  });
+  return affected;
+}
+function confirmBillsProtectionImpact(targetBalance) {
+  const affected = reservedBillsThatWouldLoseProtection(targetBalance);
+  if (!affected.length) return true;
+  const lines = affected.map(b => `• ${b.name} — $${getBillAmountInAUD(b).toFixed(2)} due ${formatDisplayDate(b.dueDate)}`).join("\n");
+  return confirm(`This change will leave reserved bills without enough money.
+
+They will return to Needs Funding:
+${lines}
+
+Proceed?`);
+}
+function showUndo(message, snapshot) {
+  undoSnapshot = snapshot;
+  clearTimeout(undoTimer);
+  const toast = document.getElementById("undoToast");
+  const text = document.getElementById("undoToastText");
+  if (text) text.textContent = message;
+  toast?.classList.remove("hidden");
+  undoTimer = setTimeout(() => { toast?.classList.add("hidden"); undoSnapshot = null; }, 10000);
+}
+function openAccountEditor(key) {
+  if (!(key in state.accounts)) return;
+  selectedAccountKey = key;
+  const editor = document.getElementById("accountEditor");
+  editor?.classList.remove("hidden");
+  document.getElementById("accountEditorTitle").textContent = accountLabel(key);
+  document.getElementById("accountEditorBalance").textContent = `Current balance: $${state.accounts[key].toFixed(2)}`;
+  const from = document.getElementById("moveFromAccount");
+  const to = document.getElementById("moveToAccount");
+  const correct = document.getElementById("correctAccount");
+  if (from) from.innerHTML = accountOptions(key);
+  const defaultTo = Object.keys(ACCOUNT_LABELS).find(x=>x!==key) || "main";
+  if (to) to.innerHTML = accountOptions(defaultTo);
+  if (correct) correct.innerHTML = accountOptions(key);
+  const actual = document.getElementById("correctActualBalance");
+  if (actual) actual.value = state.accounts[key].toFixed(2);
+  updateCorrectionPreview();
+  editor?.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function updateCorrectionPreview() {
+  const key = document.getElementById("correctAccount")?.value || selectedAccountKey;
+  const actual = round2(document.getElementById("correctActualBalance")?.value);
+  const difference = round2(actual - (state.accounts[key] || 0));
+  const node = document.getElementById("correctDifference");
+  if (node) node.textContent = `Difference: ${difference>=0?"+":"-"}$${Math.abs(difference).toFixed(2)}`;
+}
+
+document.querySelectorAll(".manage-account-btn").forEach(btn => btn.addEventListener("click", () => openAccountEditor(btn.dataset.account)));
+document.getElementById("closeAccountEditorBtn")?.addEventListener("click",()=>document.getElementById("accountEditor")?.classList.add("hidden"));
+document.getElementById("correctAccount")?.addEventListener("change", e => {
+  const key=e.target.value;
+  const actual=document.getElementById("correctActualBalance");
+  if(actual) actual.value=state.accounts[key].toFixed(2);
+  updateCorrectionPreview();
+});
+document.getElementById("correctActualBalance")?.addEventListener("input",updateCorrectionPreview);
+
+document.getElementById("moveMoneyForm")?.addEventListener("submit", e => {
+  e.preventDefault();
+  const from=document.getElementById("moveFromAccount").value;
+  const to=document.getElementById("moveToAccount").value;
+  const amount=round2(document.getElementById("moveAmount").value);
+  const reason=document.getElementById("moveReason").value.trim();
+  if(from===to) return notify("Choose two different accounts.");
+  if(amount<=0) return notify("Enter an amount greater than zero.");
+  if(state.accounts[from]+0.0001<amount) return notify(`${accountLabel(from)} contains $${state.accounts[from].toFixed(2)}.`);
+  const targetBillsBalance = from==="bills" ? round2(state.accounts.bills-amount) : state.accounts.bills;
+  if(from==="bills" && !confirmBillsProtectionImpact(targetBillsBalance)) return;
+  const snapshot=clone(state);
+  state.accounts[from]=round2(state.accounts[from]-amount);
+  state.accounts[to]=round2(state.accounts[to]+amount);
+  const affected=unreserveBillsToMatchBalance();
+  recordManualTransaction({from:accountLabel(from),to:accountLabel(to),amount,type:"ACCOUNT_TRANSFER",memo:reason||"Manual account transfer"});
+  e.currentTarget.reset();
+  persistState();
+  openAccountEditor(to);
+  showUndo(affected.length ? `Money moved. ${affected.length} bill${affected.length===1?'':'s'} now need funding.` : "Money moved and forecast updated.", snapshot);
+});
+
+document.getElementById("correctBalanceForm")?.addEventListener("submit", e => {
+  e.preventDefault();
+  const key=document.getElementById("correctAccount").value;
+  const actual=round2(document.getElementById("correctActualBalance").value);
+  const reason=document.getElementById("correctReason").value.trim();
+  if(actual<0) return notify("Balance cannot be negative.");
+  const previous=round2(state.accounts[key]);
+  const difference=round2(actual-previous);
+  if(Math.abs(difference)<0.005) return notify("The balance already matches.");
+  if(key==="bills" && actual<previous && !confirmBillsProtectionImpact(actual)) return;
+  const snapshot=clone(state);
+  state.accounts[key]=actual;
+  const affected=unreserveBillsToMatchBalance();
+  recordManualTransaction({
+    from:difference<0?accountLabel(key):"Balance correction",
+    to:difference>0?accountLabel(key):"Balance correction",
+    amount:difference,type:"BALANCE_CORRECTION",memo:reason||`Corrected ${accountLabel(key)}`,
+    accountKey:key,previousBalance:previous,newBalance:actual
+  });
+  document.getElementById("correctReason").value="";
+  persistState();
+  openAccountEditor(key);
+  showUndo(affected.length ? `Balance corrected. ${affected.length} bill${affected.length===1?'':'s'} now need funding.` : "Balance corrected and forecast updated.", snapshot);
+});
+
+document.getElementById("undoLastChangeBtn")?.addEventListener("click",()=>{
+  if(!undoSnapshot)return;
+  state=migrateState(undoSnapshot);
+  undoSnapshot=null;
+  clearTimeout(undoTimer);
+  document.getElementById("undoToast")?.classList.add("hidden");
+  persistState();
+  openAccountEditor(selectedAccountKey);
+  notify("Last account change undone.");
+});
+
 document.getElementById("sadaqahGivenForm")?.addEventListener("submit",e=>{e.preventDefault();const amount=round2(document.getElementById("sadaqahGivenAmount").value);if(amount<=0)return;if(state.accounts.sadaqah+0.0001<amount)return notify(`The Sadaqah account contains $${state.accounts.sadaqah.toFixed(2)}.`);if(!executeTransfer("Sadaqah","EXTERNAL",amount,"Sadaqah given",{type:"SADAQAH_GIVEN"}))return;e.currentTarget.reset();persistState();});
 document.getElementById("settingsForm")?.addEventListener("submit",e=>{e.preventDefault();for(const [key,id] of [["mode","mode"],["taxRate","taxRate"],["sadaqahRate","sadaqahRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"]]){const el=document.getElementById(id);if(el)state.policy[key]=el.type==="number"?Number(el.value):el.value;}persistState();notify("Financial policy saved.");});
 
@@ -629,4 +792,4 @@ function populateSettings(){for(const [id,key] of [["mode","mode"],["taxRate","t
 window.addEventListener("load",()=>{loadState();populateSettings();renderAll();});
 
 // Exposed only for automated verification; harmless in production.
-window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},calculateBillsDueBeforePayday,calculateSafetyAdvice,buildForecastPlan,forecastForMission,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation};
+window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},calculateBillsDueBeforePayday,calculateSafetyAdvice,buildForecastPlan,forecastForMission,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation,openAccountEditor,reservedBillsThatWouldLoseProtection,unreserveBillsToMatchBalance};

@@ -315,14 +315,42 @@
         <span class="eyebrow">Buckets</span>
         <h2>Accounts</h2>
         <div class="account-list">
-          <div class="account-row"><span>Main account</span><strong id="accMain">$0</strong></div>
-          <div class="account-row"><span>Bills account</span><strong id="accBills">$0</strong></div>
-          <div class="account-row"><span>Emergency fund</span><strong id="accEmergency">$0</strong></div>
-          <div class="account-row"><span>Gold fund</span><strong id="accGold">$0</strong></div>
-          <div class="account-row"><span>Sadaqah account</span><strong id="accSadaqah">$0</strong></div>
-          <div class="account-row"><span>Tax reserve</span><strong id="accTax">$0</strong></div>
+          <div class="account-row editable-account"><div><span>Main account</span><strong id="accMain">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="main">Edit</button></div>
+          <div class="account-row editable-account"><div><span>Bills account</span><strong id="accBills">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="bills">Edit</button></div>
+          <div class="account-row editable-account"><div><span>Emergency fund</span><strong id="accEmergency">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="emergency">Edit</button></div>
+          <div class="account-row editable-account"><div><span>Gold fund</span><strong id="accGold">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="gold">Edit</button></div>
+          <div class="account-row editable-account"><div><span>Sadaqah account</span><strong id="accSadaqah">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="sadaqah">Edit</button></div>
+          <div class="account-row editable-account"><div><span>Tax reserve</span><strong id="accTax">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="tax">Edit</button></div>
           <div class="account-row"><span>Suggested safety hold</span><strong id="accSafetyHold">$0</strong></div>
           <div class="account-row"><span>Truly safe to spend</span><strong id="accLifestyle">$0</strong></div>
+        </div>
+
+        <div id="accountEditor" class="account-editor hidden">
+          <div class="panel-heading">
+            <div><span class="eyebrow">Account Engine</span><h3 id="accountEditorTitle">Edit account</h3></div>
+            <button id="closeAccountEditorBtn" type="button" class="text-btn">Close</button>
+          </div>
+          <p id="accountEditorBalance" class="editor-balance">Current balance: $0.00</p>
+          <div class="account-editor-grid">
+            <form id="moveMoneyForm" class="reconcile-box">
+              <span class="eyebrow">Move money</span>
+              <h3>Transfer between accounts</h3>
+              <label>From<select id="moveFromAccount" required></select></label>
+              <label>To<select id="moveToAccount" required></select></label>
+              <label>Amount (AUD)<input id="moveAmount" type="number" min="0.01" step="0.01" required /></label>
+              <label>Reason<input id="moveReason" placeholder="Optional note" /></label>
+              <button type="submit" class="primary-btn">Move money</button>
+            </form>
+            <form id="correctBalanceForm" class="reconcile-box">
+              <span class="eyebrow">Correct balance</span>
+              <h3>Match the real account</h3>
+              <label>Account<select id="correctAccount" required></select></label>
+              <label>Actual balance (AUD)<input id="correctActualBalance" type="number" min="0" step="0.01" required /></label>
+              <label>Reason<input id="correctReason" placeholder="Bank fee, missing purchase…" /></label>
+              <div id="correctDifference" class="adjustment-preview">Difference: $0.00</div>
+              <button type="submit" class="primary-btn">Save correction</button>
+            </form>
+          </div>
         </div>
         <div class="reconcile-box">
           <span class="eyebrow">Sadaqah</span>
@@ -334,18 +362,6 @@
               <input id="sadaqahGivenAmount" type="number" min="0.01" step="0.01" required />
             </label>
             <button type="submit" class="primary-btn full">Record Sadaqah given</button>
-          </form>
-        </div>
-        <div class="reconcile-box">
-          <span class="eyebrow">Reconcile</span>
-          <h3>Set your actual Main account balance</h3>
-          <p>Use the balance shown in your real bank account. This does not change your income history.</p>
-          <form id="mainReconcileForm" class="form-grid compact">
-            <label>
-              Actual Main balance (AUD)
-              <input id="actualMainBalance" type="number" min="0" step="0.01" required />
-            </label>
-            <button type="submit" class="primary-btn full">Update Main balance</button>
           </form>
         </div>
       </section>
@@ -432,6 +448,8 @@
       </section>
     </section>
   </main>
+
+  <div id="undoToast" class="undo-toast hidden"><span id="undoToastText">Money moved.</span><button id="undoLastChangeBtn" type="button">Undo</button></div>
 
   <nav class="bottom-nav">
     <button data-screen="homeScreen" class="active">Home</button>
