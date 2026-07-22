@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#17365D" />
-  <link rel="stylesheet" href="styles.css?v=mission131" />
+  <link rel="stylesheet" href="styles.css?v=mission140" />
   <title>FOS — Personal Financial Operating System</title>
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -91,12 +91,28 @@
           <strong id="homeGold">$0</strong>
           <small id="homeGoldSub">0% of target</small>
         </article>
+        <article class="bucket">
+          <span>Sadaqah</span>
+          <strong id="homeSadaqah">$0</strong>
+          <small>Set aside and ready to give</small>
+        </article>
         <article class="bucket lifestyle-bucket">
-          <span>Safe to spend</span>
+          <span>Truly safe to spend</span>
           <strong id="homeSafeSpend">$0</strong>
-          <small id="homeSafeSpendSub">Until next payday</small>
+          <small id="homeSafeSpendSub">After suggested safety hold</small>
         </article>
       </div>
+
+      <section id="safetyAdviceCard" class="panel safety-advice status-green">
+        <span class="eyebrow">Today's advice</span>
+        <h2 id="safetyAdviceTitle">Your upcoming bills are covered.</h2>
+        <p id="safetyAdviceText">Your Main account is currently safe to spend.</p>
+        <div class="safety-numbers">
+          <div><span>Main balance</span><strong id="safetyMainBalance">$0.00</strong></div>
+          <div><span>Suggested hold</span><strong id="safetyHold">$0.00</strong></div>
+          <div><span>Truly safe</span><strong id="safetyTrulySafe">$0.00</strong></div>
+        </div>
+      </section>
 
       <section class="panel mission-queue-panel">
         <div class="panel-heading">
@@ -133,14 +149,14 @@
             <label>Amount received<input id="reviewReceivedAmount" type="number" min="0" step="0.01" /></label>
           </div>
 
-          <h3>Review proposed allocation</h3>
-          <p class="review-note">Change any amount before confirming. Nothing moves until you confirm.</p>
+          <h3>Recommended allocation</h3>
+          <p class="review-note">Review the suggested plan and change any amount before confirming. Nothing moves until you confirm.</p>
           <div class="allocation-grid">
-            <label>Tax<input id="allocationTax" type="number" min="0" step="0.01" /></label>
             <label>Bills<input id="allocationBills" type="number" min="0" step="0.01" readonly /></label>
             <label>Emergency<input id="allocationEmergency" type="number" min="0" step="0.01" /></label>
+            <label>Sadaqah<input id="allocationSadaqah" type="number" min="0" step="0.01" /></label>
             <label>Gold<input id="allocationGold" type="number" min="0" step="0.01" /></label>
-            <label>Main account<input id="allocationMain" type="number" min="0" step="0.01" readonly /></label>
+            <label>Tax<input id="allocationTax" type="number" min="0" step="0.01" /></label>
           </div>
 
           <div class="protected-bills-box">
@@ -150,7 +166,7 @@
 
           <div id="allocationFeedback" class="allocation-feedback status-orange">Review the proposed allocation.</div>
           <div class="allocation-total-row"><span>Total allocated</span><strong id="allocationTotal">$0.00</strong></div>
-          <div class="allocation-total-row"><span>Remaining</span><strong id="allocationRemaining">$0.00</strong></div>
+          <div class="allocation-total-row main-destination"><span>Remaining → Main account</span><strong id="allocationRemaining">$0.00</strong></div><input id="allocationMain" type="hidden" value="0" />
           <div class="form-actions">
             <button id="resetAllocationBtn" type="button" class="ghost-dark-btn">Reset suggestion</button>
             <button id="confirmAllocationBtn" type="button" class="primary-btn">Confirm allocation</button>
@@ -159,13 +175,11 @@
         </div>
 
         <div id="missionComplete" class="complete-card hidden">
-          <div class="checkmark">✓</div>
-          <span class="mission-stamp">MISSION COMPLETE</span>
-          <h2>Allocation confirmed</h2>
-          <p id="missionProtectedUntil">The selected bills are reserved.</p>
+          <div class="completion-head"><div class="checkmark">✓</div><div><span class="mission-stamp">MISSION COMPLETE</span><h2>Allocation confirmed</h2><p id="missionProtectedUntil">The selected bills are reserved.</p></div></div>
           <div class="completion-summary">
             <div><span>Tax</span><strong id="summaryTax">$0</strong></div>
             <div><span>Bills</span><strong id="summaryBills">$0</strong></div>
+            <div><span>Sadaqah</span><strong id="summarySadaqah">$0</strong></div>
             <div><span>Emergency</span><strong id="summaryEmergency">$0</strong></div>
             <div><span>Gold</span><strong id="summaryGold">$0</strong></div>
             <div><span>Main account</span><strong id="summarySpend">$0</strong></div>
@@ -176,7 +190,7 @@
 
       <section class="panel">
         <span class="eyebrow">New mission</span>
-        <h2>Add expected income</h2>
+        <h2>Create a mission</h2>
         <form id="incomeForm" class="form-grid">
           <input id="editingIncomeId" type="hidden" />
           <label>
@@ -184,7 +198,7 @@
             <input id="incomeSource" required placeholder="CNAH, Friendly..." />
           </label>
           <label>
-            Amount (AUD)
+            Expected amount (AUD)
             <input id="incomeAmount" type="number" min="0" step="0.01" required />
           </label>
           <label>
@@ -199,15 +213,15 @@
             </select>
           </label>
           <div class="form-actions full">
-            <button type="submit" id="saveIncomeBtn" class="primary-btn">Add expected income</button>
+            <button type="submit" id="saveIncomeBtn" class="primary-btn">Create mission</button>
             <button type="button" id="cancelIncomeEditBtn" class="ghost-dark-btn hidden">Cancel</button>
           </div>
         </form>
       </section>
 
       <section class="panel">
-        <span class="eyebrow">Income manager</span>
-        <h2>Expected and received income</h2>
+        <span class="eyebrow">Mission manager</span>
+        <h2>Upcoming and completed missions</h2>
         <div id="incomeList" class="list"></div>
       </section>
     </section>
@@ -278,12 +292,12 @@
 
         <div class="bill-summary">
           <div>
-            <span class="eyebrow">Bills due before next payday</span>
-            <strong id="billsDueBeforePayday">$0</strong>
+            <span class="eyebrow">Protected bills</span>
+            <strong id="protectedBillsCount">0</strong>
           </div>
           <div class="right">
-            <span class="eyebrow">Number of bills</span>
-            <strong id="billsDueCount">0</strong>
+            <span class="eyebrow">Needs funding</span>
+            <strong id="needsFundingCount">0</strong>
           </div>
         </div>
         <div id="billsList" class="list"></div>
@@ -300,8 +314,22 @@
           <div class="account-row"><span>Bills account</span><strong id="accBills">$0</strong></div>
           <div class="account-row"><span>Emergency fund</span><strong id="accEmergency">$0</strong></div>
           <div class="account-row"><span>Gold fund</span><strong id="accGold">$0</strong></div>
+          <div class="account-row"><span>Sadaqah account</span><strong id="accSadaqah">$0</strong></div>
           <div class="account-row"><span>Tax reserve</span><strong id="accTax">$0</strong></div>
-          <div class="account-row"><span>Safe to spend</span><strong id="accLifestyle">$0</strong></div>
+          <div class="account-row"><span>Suggested safety hold</span><strong id="accSafetyHold">$0</strong></div>
+          <div class="account-row"><span>Truly safe to spend</span><strong id="accLifestyle">$0</strong></div>
+        </div>
+        <div class="reconcile-box">
+          <span class="eyebrow">Sadaqah</span>
+          <h3>Record Sadaqah given</h3>
+          <p>This reduces the Sadaqah account without counting it as ordinary spending.</p>
+          <form id="sadaqahGivenForm" class="form-grid compact">
+            <label>
+              Amount given (AUD)
+              <input id="sadaqahGivenAmount" type="number" min="0.01" step="0.01" required />
+            </label>
+            <button type="submit" class="primary-btn full">Record Sadaqah given</button>
+          </form>
         </div>
         <div class="reconcile-box">
           <span class="eyebrow">Reconcile</span>
@@ -341,6 +369,10 @@
           <label>
             Tax reserve %
             <input id="taxRate" type="number" min="0" max="100" step="1" />
+          </label>
+          <label>
+            Sadaqah % after tax and bills
+            <input id="sadaqahRate" type="number" min="0" max="100" step="1" />
           </label>
           <label>
             Emergency target
@@ -406,7 +438,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js?v=mission131"></script>
-  <script src="app.js?v=mission131"></script>
+  <script src="app.js?v=mission140"></script>
   <script src="cloud.js?v=mission131"></script>
 </body>
 </html>

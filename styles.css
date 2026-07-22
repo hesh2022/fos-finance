@@ -402,3 +402,36 @@ input, select {
 button:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:800px){.allocation-grid{grid-template-columns:1fr 1fr}.received-summary{align-items:flex-end}.allocation-review{padding:16px}}
 @media(max-width:480px){.allocation-grid{grid-template-columns:1fr}.received-summary{display:grid}.received-summary label{max-width:none}.allocation-review .form-actions{display:grid}}
+
+/* v1.3.2 visual polish */
+.allocation-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.main-destination{margin-top:0;background:var(--soft-blue);border-radius:14px;padding:14px 16px;border:0}
+.complete-card{padding:28px;min-height:0;text-align:left}
+.completion-head{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+.completion-head .checkmark{margin:0;flex:0 0 auto;width:54px;height:54px;font-size:34px}
+.completion-head h2{margin:4px 0}
+.completion-head p{margin:0;color:var(--muted)}
+.complete-card .completion-summary{max-width:none;margin:0 0 18px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;background:rgba(0,0,0,.08);border-radius:14px;overflow:hidden}
+.complete-card .completion-summary>div{background:rgba(255,255,255,.46);padding:14px;display:block}
+.complete-card .completion-summary span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.complete-card .primary-btn{display:block;margin-left:auto}
+.bill-summary{grid-template-columns:1fr 1fr}
+.bill-title-row{gap:10px;align-items:center;flex-wrap:wrap}
+.status-badge{letter-spacing:.03em;text-transform:uppercase}
+#incomeList .list-item>div:first-child{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#incomeList .list-item p{flex-basis:100%;margin-top:2px}
+@media(max-width:900px){.complete-card .completion-summary{grid-template-columns:1fr 1fr}.allocation-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.complete-card{padding:20px}.completion-head{align-items:flex-start}.complete-card .completion-summary{grid-template-columns:1fr}.allocation-grid{grid-template-columns:1fr}}
+
+/* FOS v1.4 — Sadaqah and Safety Engine */
+.allocation-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.complete-card .completion-summary{grid-template-columns:repeat(6,minmax(0,1fr))}
+.safety-advice{border-left:5px solid currentColor;margin-bottom:18px}
+.safety-advice h2{margin:6px 0 8px;color:var(--ink)}
+.safety-advice p{margin:0;color:var(--muted)}
+.safety-numbers{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.safety-numbers>div{background:rgba(255,255,255,.64);border-radius:12px;padding:12px}
+.safety-numbers span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.safety-numbers strong{font-size:19px;color:var(--ink)}
+@media(max-width:900px){.allocation-grid{grid-template-columns:1fr 1fr}.complete-card .completion-summary{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.allocation-grid,.safety-numbers{grid-template-columns:1fr}.complete-card .completion-summary{grid-template-columns:1fr}}

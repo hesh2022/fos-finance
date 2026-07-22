@@ -5,10 +5,11 @@ const STORAGE_KEY = "fos_state";
 const LEGACY_KEYS = ["fos_data", "fos_state_v2", "fos_app_state", "fosState"];
 
 const DEFAULT_STATE = {
-  accounts: { main: 0, bills: 0, tax: 0, emergency: 0, gold: 0 },
+  accounts: { main: 0, bills: 0, tax: 0, emergency: 0, gold: 0, sadaqah: 0 },
   policy: {
     mode: "Stability",
     taxRate: 15,
+    sadaqahRate: 10,
     emergencyTarget: 10000,
     goldTarget: 5000,
     exchangeRate: 32.5,
@@ -21,7 +22,7 @@ const DEFAULT_STATE = {
   bills: [],
   transfers: [],
   activeMission: null,
-  schemaVersion: 5
+  schemaVersion: 6
 };
 
 let state = clone(DEFAULT_STATE);
@@ -101,8 +102,19 @@ function migrateState(raw) {
     reservedAt: b.reservedAt || null
   })) : [];
   next.transfers = Array.isArray(raw.transfers) ? raw.transfers : [];
-  next.activeMission = raw.activeMission && typeof raw.activeMission === "object" ? raw.activeMission : null;
-  next.schemaVersion = 5;
+  next.activeMission = raw.activeMission && typeof raw.activeMission === "object" ? clone(raw.activeMission) : null;
+  if (next.activeMission?.allocation) {
+    const a = next.activeMission.allocation;
+    a.received = round2(a.received);
+    a.tax = round2(a.tax);
+    a.bills = round2(a.bills);
+    a.sadaqah = round2(a.sadaqah);
+    a.emergency = round2(a.emergency);
+    a.gold = round2(a.gold);
+    a.main = round2(a.main);
+    a.selectedBillIds = Array.isArray(a.selectedBillIds) ? a.selectedBillIds.map(String) : [];
+  }
+  next.schemaVersion = 6;
   return next;
 }
 
@@ -294,6 +306,39 @@ function emergencyPercent() {
   if (state.policy.mode === "Wealth") return Number(state.policy.wealthEmergencyPct) || 0;
   return Number(state.policy.stabilityEmergencyPct) || 0;
 }
+function calculateSafetyAdvice() {
+  const pending = getExpectedIncomes();
+  const nextIncome = pending[0] || null;
+  const today = todayISO();
+  let windowEnd = null;
+  let availableFromNextMission = 0;
+
+  if (nextIncome) {
+    const following = pending[1] || null;
+    windowEnd = following?.date || addCycle(nextIncome.date, "Monthly");
+    const tax = nextIncome.taxDeducted === "Yes" ? 0 : round2(nextIncome.amount * Number(state.policy.taxRate || 0) / 100);
+    availableFromNextMission = Math.max(0, round2(nextIncome.amount - tax));
+  } else {
+    const d = parseDateOnly(today);
+    d.setDate(d.getDate() + 30);
+    windowEnd = toDateOnly(d);
+  }
+
+  const upcoming = state.bills
+    .filter(b => b.status === "Unpaid" && !b.missionId && (!windowEnd || b.dueDate < windowEnd))
+    .sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+  const billsNeeded = round2(upcoming.reduce((sum,b) => sum + getBillAmountInAUD(b), 0));
+  const hold = round2(Math.max(0, billsNeeded - availableFromNextMission));
+  const trulySafe = round2(Math.max(0, state.accounts.main - hold));
+  const uncovered = round2(Math.max(0, hold - state.accounts.main));
+  return { nextIncome, windowEnd, upcoming, billsNeeded, availableFromNextMission, hold, trulySafe, uncovered };
+}
+
+function suggestedSadaqah(received, tax, bills) {
+  const base = Math.max(0, round2(received - tax - bills));
+  return round2(base * Number(state.policy.sadaqahRate || 10) / 100);
+}
+
 function makeSuggestedAllocation(income) {
   const received = round2(income.amount);
   const tax = income.taxDeducted === "Yes" ? 0 : round2(received * Number(state.policy.taxRate || 0) / 100);
@@ -305,10 +350,12 @@ function makeSuggestedAllocation(income) {
     if (round2(bills + amount) <= available + 0.0001) { selectedBillIds.push(bill.id); bills = round2(bills + amount); }
   }
   available = Math.max(0, round2(available - bills));
+  const sadaqah = suggestedSadaqah(received, tax, bills);
+  available = Math.max(0, round2(available - sadaqah));
   const emergencyGap = Math.max(0, round2(Number(state.policy.emergencyTarget || 0) - state.accounts.emergency));
   const emergency = Math.min(available, emergencyGap, round2(available * emergencyPercent() / 100));
   available = Math.max(0, round2(available - emergency));
-  return { received, tax, bills, emergency, gold: 0, main: available, selectedBillIds };
+  return { received, tax, bills, sadaqah, emergency, gold: 0, main: available, selectedBillIds };
 }
 function initMission(income) {
   if (state.activeMission) { navigateTo("paydayScreen"); return; }
@@ -324,27 +371,28 @@ function initMission(income) {
 function allocationFromInputs() {
   const received = round2(document.getElementById("reviewReceivedAmount")?.value);
   const tax = round2(document.getElementById("allocationTax")?.value);
+  const sadaqah = round2(document.getElementById("allocationSadaqah")?.value);
   const emergency = round2(document.getElementById("allocationEmergency")?.value);
   const gold = round2(document.getElementById("allocationGold")?.value);
   const selectedBillIds = [...document.querySelectorAll('.mission-bill-checkbox:checked')].map(x => x.value);
   const bills = round2(selectedBillIds.reduce((sum,id)=>{
     const bill=state.bills.find(b=>b.id===id); return sum+(bill?getBillAmountInAUD(bill):0);
   },0));
-  const main = round2(received - tax - bills - emergency - gold);
-  return { received, tax, bills, emergency, gold, main, selectedBillIds };
+  const main = round2(received - tax - bills - sadaqah - emergency - gold);
+  return { received, tax, bills, sadaqah, emergency, gold, main, selectedBillIds };
 }
 function syncAllocationReview() {
   const am=state.activeMission; if(!am || am.confirmed) return;
   const a=allocationFromInputs(); am.allocation=a;
-  const total=round2(a.tax+a.bills+a.emergency+a.gold+Math.max(0,a.main));
-  const remaining=round2(a.received-a.tax-a.bills-a.emergency-a.gold-Math.max(0,a.main));
+  const total=round2(a.tax+a.bills+a.sadaqah+a.emergency+a.gold+Math.max(0,a.main));
+  const remaining=round2(a.received-a.tax-a.bills-a.sadaqah-a.emergency-a.gold-Math.max(0,a.main));
   document.getElementById("allocationBills").value=a.bills.toFixed(2);
   document.getElementById("allocationMain").value=Math.max(0,a.main).toFixed(2);
   document.getElementById("selectedBillsTotal").textContent=`$${a.bills.toFixed(2)}`;
   document.getElementById("allocationTotal").textContent=`$${total.toFixed(2)}`;
   document.getElementById("allocationRemaining").textContent=`$${remaining.toFixed(2)}`;
   const feedback=document.getElementById("allocationFeedback"), confirm=document.getElementById("confirmAllocationBtn");
-  const invalid=[a.received,a.tax,a.emergency,a.gold].some(v=>v<0) || a.main < -0.0001;
+  const invalid=[a.received,a.tax,a.sadaqah,a.emergency,a.gold].some(v=>v<0) || a.main < -0.0001;
   if(invalid){ feedback.className="allocation-feedback status-red"; feedback.textContent="Allocation exceeds the amount received. Reduce one or more amounts."; confirm.disabled=true; }
   else if(Math.abs(remaining)>0.009){ feedback.className="allocation-feedback status-orange"; feedback.textContent="Some money is not balanced yet. Review the figures."; confirm.disabled=true; }
   else { feedback.className="allocation-feedback status-green"; feedback.textContent="Balanced and ready to confirm."; confirm.disabled=false; }
@@ -354,6 +402,7 @@ function populateAllocationInputs(a) {
   document.getElementById("reviewExpectedAmount").textContent=`$${round2(state.activeMission.incomeAmount).toFixed(2)}`;
   document.getElementById("reviewReceivedAmount").value=round2(a.received).toFixed(2);
   document.getElementById("allocationTax").value=round2(a.tax).toFixed(2);
+  document.getElementById("allocationSadaqah").value=round2(a.sadaqah).toFixed(2);
   document.getElementById("allocationEmergency").value=round2(a.emergency).toFixed(2);
   document.getElementById("allocationGold").value=round2(a.gold).toFixed(2);
   document.getElementById("allocationBills").value=round2(a.bills).toFixed(2);
@@ -365,10 +414,12 @@ function renderMission() {
   empty?.classList.add("hidden"); document.getElementById("missionHeading").textContent=`Mission: ${am.incomeSource}`;
   if(am.confirmed){ review.classList.add("hidden"); complete.classList.remove("hidden"); const a=am.allocation;
     document.getElementById("summaryTax").textContent=`$${a.tax.toFixed(2)}`; document.getElementById("summaryBills").textContent=`$${a.bills.toFixed(2)}`;
+    document.getElementById("summarySadaqah").textContent=`$${a.sadaqah.toFixed(2)}`;
     document.getElementById("summaryEmergency").textContent=`$${a.emergency.toFixed(2)}`; document.getElementById("summaryGold").textContent=`$${a.gold.toFixed(2)}`;
     document.getElementById("summarySpend").textContent=`$${a.main.toFixed(2)}`; return;
   }
   review.classList.remove("hidden"); complete.classList.add("hidden"); const income=state.incomes.find(i=>i.id===am.incomeId); const a=am.allocation||makeSuggestedAllocation(income);
+  a.sadaqah = round2(a.sadaqah);
   populateAllocationInputs(a);
   const c=document.getElementById("missionBillChoices"); c.innerHTML="";
   const bills=eligibleBillsForMission(income);
@@ -380,14 +431,26 @@ function confirmAllocation() {
   const am=state.activeMission; if(!am||am.confirmed)return; const a=allocationFromInputs();
   if(a.main < -0.0001)return notify("Allocation exceeds the amount received.");
   if(!executeTransfer("EXTERNAL","Main",a.received,`Income received: ${am.incomeSource}`,{incomeId:am.incomeId}))return;
-  for(const [amount,to,memo] of [[a.tax,"Tax","Mission tax"],[a.bills,"Bills","Mission bills"],[a.emergency,"Emergency","Mission emergency"],[a.gold,"Gold","Mission gold"]]){
+  for(const [amount,to,memo] of [[a.tax,"Tax","Mission tax"],[a.bills,"Bills","Mission bills"],[a.sadaqah,"Sadaqah","Mission Sadaqah"],[a.emergency,"Emergency","Mission emergency"],[a.gold,"Gold","Mission gold"]]){
     if(amount>0&&!executeTransfer("Main",to,amount,`${memo}: ${am.incomeSource}`,{incomeId:am.incomeId}))return notify("Allocation could not be completed.");
   }
   a.selectedBillIds.forEach(id=>{const b=state.bills.find(x=>x.id===id);if(b){b.missionId=am.incomeId;b.status="Reserved";b.reservedAt=new Date().toISOString();}});
   am.allocation=a; am.confirmed=true; const income=state.incomes.find(i=>i.id===am.incomeId); if(income)income.status="Processed"; persistState();
 }
-["reviewReceivedAmount","allocationTax","allocationEmergency","allocationGold"].forEach(id=>document.getElementById(id)?.addEventListener("input",syncAllocationReview));
-document.getElementById("missionBillChoices")?.addEventListener("change",syncAllocationReview);
+function refreshSuggestedSadaqahFromInputs() {
+  const received = round2(document.getElementById("reviewReceivedAmount")?.value);
+  const tax = round2(document.getElementById("allocationTax")?.value);
+  const selectedBillIds = [...document.querySelectorAll('.mission-bill-checkbox:checked')].map(x => x.value);
+  const bills = round2(selectedBillIds.reduce((sum,id)=>{
+    const bill=state.bills.find(b=>b.id===id); return sum+(bill?getBillAmountInAUD(bill):0);
+  },0));
+  const input = document.getElementById("allocationSadaqah");
+  if (input) input.value = suggestedSadaqah(received, tax, bills).toFixed(2);
+  syncAllocationReview();
+}
+["reviewReceivedAmount","allocationTax"].forEach(id=>document.getElementById(id)?.addEventListener("input",refreshSuggestedSadaqahFromInputs));
+["allocationSadaqah","allocationEmergency","allocationGold"].forEach(id=>document.getElementById(id)?.addEventListener("input",syncAllocationReview));
+document.getElementById("missionBillChoices")?.addEventListener("change",refreshSuggestedSadaqahFromInputs);
 document.getElementById("resetAllocationBtn")?.addEventListener("click",()=>{const i=state.incomes.find(x=>x.id===state.activeMission?.incomeId);if(i){state.activeMission.allocation=makeSuggestedAllocation(i);renderMission();}});
 document.getElementById("confirmAllocationBtn")?.addEventListener("click",confirmAllocation);
 document.getElementById("cancelMissionBtn")?.addEventListener("click",()=>{const i=state.incomes.find(x=>x.id===state.activeMission?.incomeId);if(i)i.status="Pending";state.activeMission=null;persistState();navigateTo("homeScreen");});
@@ -409,13 +472,37 @@ function renderAll() {
   unlockDueRecurringBills();
   const $ = id => document.getElementById(id);
   if ($("homeMain")) $("homeMain").textContent=`$${state.accounts.main.toFixed(2)}`;
-  for (const [id,key] of [["accMain","main"],["accBills","bills"],["accEmergency","emergency"],["accGold","gold"],["accTax","tax"]]) if ($(id)) $(id).textContent=`$${state.accounts[key].toFixed(2)}`;
-  if ($("accLifestyle")) $("accLifestyle").textContent=`$${state.accounts.main.toFixed(2)}`;
-  if ($("homeSafeSpend")) $("homeSafeSpend").textContent=`$${state.accounts.main.toFixed(2)}`;
+  for (const [id,key] of [["accMain","main"],["accBills","bills"],["accEmergency","emergency"],["accGold","gold"],["accSadaqah","sadaqah"],["accTax","tax"]]) if ($(id)) $(id).textContent=`$${state.accounts[key].toFixed(2)}`;
+  const safety = calculateSafetyAdvice();
+  if ($("accSafetyHold")) $("accSafetyHold").textContent=`$${safety.hold.toFixed(2)}`;
+  if ($("accLifestyle")) $("accLifestyle").textContent=`$${safety.trulySafe.toFixed(2)}`;
+  if ($("homeSadaqah")) $("homeSadaqah").textContent=`$${state.accounts.sadaqah.toFixed(2)}`;
+  if ($("homeSafeSpend")) $("homeSafeSpend").textContent=`$${safety.trulySafe.toFixed(2)}`;
+  if ($("safetyMainBalance")) $("safetyMainBalance").textContent=`$${state.accounts.main.toFixed(2)}`;
+  if ($("safetyHold")) $("safetyHold").textContent=`$${safety.hold.toFixed(2)}`;
+  if ($("safetyTrulySafe")) $("safetyTrulySafe").textContent=`$${safety.trulySafe.toFixed(2)}`;
+  const adviceCard=$("safetyAdviceCard"), adviceTitle=$("safetyAdviceTitle"), adviceText=$("safetyAdviceText");
+  if (adviceCard && adviceTitle && adviceText) {
+    if (safety.uncovered > 0.009) {
+      adviceCard.className="panel safety-advice status-red";
+      adviceTitle.textContent=`Upcoming bills may be short by $${safety.uncovered.toFixed(2)}.`;
+      adviceText.textContent="Even keeping all of Main may not fully cover the next bill window. Consider delaying non-essential spending.";
+    } else if (safety.hold > 0.009) {
+      adviceCard.className="panel safety-advice status-orange";
+      adviceTitle.textContent=`Consider keeping $${safety.hold.toFixed(2)} in Main.`;
+      adviceText.textContent=safety.nextIncome ? `Your next mission may not fully cover ${safety.upcoming.length} upcoming bill${safety.upcoming.length===1?"":"s"}.` : "No upcoming mission currently covers the bills due in the next 30 days.";
+    } else {
+      adviceCard.className="panel safety-advice status-green";
+      adviceTitle.textContent="Your upcoming bills are covered.";
+      adviceText.textContent=safety.nextIncome ? "Your next mission is expected to cover the bills in its window." : "There are no unfunded bills due in the next 30 days.";
+    }
+  }
   const due=calculateBillsDueBeforePayday();
   if ($("homeBills")) $("homeBills").textContent=`$${due.total.toFixed(2)}`;
-  if ($("billsDueBeforePayday")) $("billsDueBeforePayday").textContent=`$${due.total.toFixed(2)}`;
-  if ($("billsDueCount")) $("billsDueCount").textContent=due.count;
+  const protectedCount=state.bills.filter(b=>b.status==="Reserved").length;
+  const needsFundingCount=state.bills.filter(b=>billVisualStatus(b).label==="Needs funding" || billVisualStatus(b).label==="Overdue").length;
+  if ($("protectedBillsCount")) $("protectedBillsCount").textContent=protectedCount;
+  if ($("needsFundingCount")) $("needsFundingCount").textContent=needsFundingCount;
   if ($("homeEmergency")) $("homeEmergency").textContent=`$${state.accounts.emergency.toFixed(2)}`;
   if ($("homeGold")) $("homeGold").textContent=`$${state.accounts.gold.toFixed(2)}`;
   if ($("homeEmergencySub")) $("homeEmergencySub").textContent=`${Math.min(100, state.policy.emergencyTarget ? state.accounts.emergency/state.policy.emergencyTarget*100 : 0).toFixed(0)}% of target`;
@@ -457,12 +544,12 @@ function renderMissionQueue() {
 }
 function renderBillsList() {
   const c=document.getElementById("billsList");c.innerHTML="";if(!state.bills.length){c.innerHTML='<div class="empty-state">No bills entered.</div>';return;}
-  [...state.bills].sort((a,b)=>(a.status==="Paid")-(b.status==="Paid")||a.dueDate.localeCompare(b.dueDate)).forEach(b=>{const st=billVisualStatus(b),mission=state.incomes.find(i=>i.id===b.missionId);const item=document.createElement("div");item.className=`list-item bill-item status-${st.tone}`;item.innerHTML=`<div><div class="bill-title-row"><strong>${escapeHTML(b.name)}</strong><span class="status-badge ${st.tone}">${st.label}</span></div><p>Due ${formatDisplayDate(b.dueDate)} · ${escapeHTML(normalizeFrequency(b.recurring))}</p>${mission?`<small>Mission: ${escapeHTML(mission.source)}</small>`:""}</div><div class="right"><strong>$${getBillAmountInAUD(b).toFixed(2)} AUD</strong>${b.currency!=="AUD"?`<small>${round2(b.amount)} ${b.currency}</small>`:""}<div>${b.status==="Reserved"?`<button class="text-btn success-text" onclick="markBillPaid('${b.id}')">Mark Paid</button>`:""}<button class="text-btn primary-text" onclick="editBill('${b.id}')">Edit</button><button class="text-btn danger-text" onclick="deleteBill('${b.id}')">Remove</button></div></div>`;c.appendChild(item);});
+  [...state.bills].sort((a,b)=>(a.status==="Paid")-(b.status==="Paid")||a.dueDate.localeCompare(b.dueDate)).forEach(b=>{const st=billVisualStatus(b),mission=state.incomes.find(i=>i.id===b.missionId);const item=document.createElement("div");item.className=`list-item bill-item status-${st.tone}`;item.innerHTML=`<div><div class="bill-title-row"><strong>${escapeHTML(b.name)}</strong><span class="status-badge ${st.tone}">${st.label}</span></div><p>Due ${formatDisplayDate(b.dueDate)} · ${escapeHTML(normalizeFrequency(b.recurring))}</p>${mission?`<small>Protected by <strong>${escapeHTML(mission.source)}</strong></small>`:""}</div><div class="right"><strong>$${getBillAmountInAUD(b).toFixed(2)} AUD</strong>${b.currency!=="AUD"?`<small>${round2(b.amount)} ${b.currency}</small>`:""}<div>${b.status==="Reserved"?`<button class="text-btn success-text" onclick="markBillPaid('${b.id}')">Mark Paid</button>`:""}<button class="text-btn primary-text" onclick="editBill('${b.id}')">Edit</button><button class="text-btn danger-text" onclick="deleteBill('${b.id}')">Remove</button></div></div>`;c.appendChild(item);});
 }
 function renderIncomeList() {
   const c=document.getElementById("incomeList"); c.innerHTML="";
   if (!state.incomes.length) { c.innerHTML='<div class="empty-state">No income records.</div>'; return; }
-  [...state.incomes].sort((a,b)=>a.date.localeCompare(b.date)).forEach(i => { const item=document.createElement("div"); item.className="list-item"; const label=i.status==="Pending"?"Expected":i.status; item.innerHTML=`<div><strong>${escapeHTML(i.source)} [${label}]</strong><p>${formatDisplayDate(i.date)} | Tax deducted: ${i.taxDeducted}</p></div><div class="right"><strong>$${i.amount.toFixed(2)} AUD</strong><div>${i.status==="Pending"?`<button class="text-btn success-text" onclick="receiveIncome('${i.id}')">Mark Received</button><button class="text-btn primary-text" onclick="editIncome('${i.id}')">Edit</button>`:""}<button class="text-btn danger-text" onclick="deleteIncome('${i.id}')">Delete</button></div></div>`; c.appendChild(item); });
+  [...state.incomes].sort((a,b)=>a.date.localeCompare(b.date)).forEach(i => { const item=document.createElement("div"); item.className="list-item"; const label=i.status==="Pending"?"Expected":i.status; item.innerHTML=`<div><strong>${escapeHTML(i.source)}</strong><span class="status-badge ${i.status==="Pending"?"orange":"green"}">${label}</span><p>${formatDisplayDate(i.date)} | Tax deducted: ${i.taxDeducted}</p></div><div class="right"><strong>$${i.amount.toFixed(2)} AUD</strong><div>${i.status==="Pending"?`<button class="text-btn success-text" onclick="receiveIncome('${i.id}')">Mark Received</button><button class="text-btn primary-text" onclick="editIncome('${i.id}')">Edit</button>`:""}<button class="text-btn danger-text" onclick="deleteIncome('${i.id}')">Delete</button></div></div>`; c.appendChild(item); });
 }
 function renderTransferHistory() {
   const c=document.getElementById("transferHistory"); c.innerHTML="";
@@ -481,16 +568,17 @@ document.getElementById("billForm")?.addEventListener("submit",e=>{ e.preventDef
 document.getElementById("toggleBillFormBtn")?.addEventListener("click",()=>{const f=document.getElementById("billForm");delete f.dataset.editId;f.reset();document.getElementById("billFormWrap").classList.toggle("hidden");});
 document.getElementById("cancelBillEditBtn")?.addEventListener("click",()=>{delete document.getElementById("billForm").dataset.editId;document.getElementById("billFormWrap").classList.add("hidden");});
 document.getElementById("mainReconcileForm")?.addEventListener("submit",e=>{e.preventDefault();const target=round2(document.getElementById("actualMainBalance").value);if(target<0)return;executeTransfer("SYSTEM","Main",target,"Manual Main balance reconciliation",{type:"RECONCILIATION"});e.currentTarget.reset();persistState();});
-document.getElementById("settingsForm")?.addEventListener("submit",e=>{e.preventDefault();for(const [key,id] of [["mode","mode"],["taxRate","taxRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"]]){const el=document.getElementById(id);if(el)state.policy[key]=el.type==="number"?Number(el.value):el.value;}persistState();notify("Financial policy saved.");});
+document.getElementById("sadaqahGivenForm")?.addEventListener("submit",e=>{e.preventDefault();const amount=round2(document.getElementById("sadaqahGivenAmount").value);if(amount<=0)return;if(state.accounts.sadaqah+0.0001<amount)return notify(`The Sadaqah account contains $${state.accounts.sadaqah.toFixed(2)}.`);if(!executeTransfer("Sadaqah","EXTERNAL",amount,"Sadaqah given",{type:"SADAQAH_GIVEN"}))return;e.currentTarget.reset();persistState();});
+document.getElementById("settingsForm")?.addEventListener("submit",e=>{e.preventDefault();for(const [key,id] of [["mode","mode"],["taxRate","taxRate"],["sadaqahRate","sadaqahRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"]]){const el=document.getElementById(id);if(el)state.policy[key]=el.type==="number"?Number(el.value):el.value;}persistState();notify("Financial policy saved.");});
 
 document.getElementById("exportDataBtn")?.addEventListener("click",()=>{persistState(false);const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`FOS-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(url);});
 document.getElementById("importDataBtn")?.addEventListener("click",()=>document.getElementById("importDataFile").click());
 document.getElementById("importDataFile")?.addEventListener("change",e=>{const file=e.target.files?.[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const imported=migrateState(JSON.parse(r.result));if(!confirm("Replace the current app data with this backup?"))return;state=imported;persistState();populateSettings();notify("Backup imported successfully.");}catch(err){notify("This backup file is not valid.");}};r.readAsText(file);e.target.value="";});
 document.getElementById("resetBtn")?.addEventListener("click",()=>{if(confirm("Reset FOS? All balances, bills and income records will be erased.")){localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(`${STORAGE_KEY}_backup`);state=clone(DEFAULT_STATE);persistState();populateSettings();}});
 
-function populateSettings(){for(const [id,key] of [["mode","mode"],["taxRate","taxRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"]]){const el=document.getElementById(id);if(el)el.value=state.policy[key];}}
+function populateSettings(){for(const [id,key] of [["mode","mode"],["taxRate","taxRate"],["sadaqahRate","sadaqahRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"]]){const el=document.getElementById(id);if(el)el.value=state.policy[key];}}
 
 window.addEventListener("load",()=>{loadState();populateSettings();renderAll();});
 
 // Exposed only for automated verification; harmless in production.
-window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},calculateBillsDueBeforePayday,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation};
+window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},calculateBillsDueBeforePayday,calculateSafetyAdvice,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation};
