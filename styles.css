@@ -435,3 +435,6 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .safety-numbers strong{font-size:19px;color:var(--ink)}
 @media(max-width:900px){.allocation-grid{grid-template-columns:1fr 1fr}.complete-card .completion-summary{grid-template-columns:1fr 1fr}}
 @media(max-width:520px){.allocation-grid,.safety-numbers{grid-template-columns:1fr}.complete-card .completion-summary{grid-template-columns:1fr}}
+.forecast-tag{display:inline-block;margin-top:5px;padding:3px 7px;border-radius:999px;background:var(--status-orange-bg);color:var(--status-orange);font-weight:800;font-size:11px}
+#missionForecastAdvice strong{display:block;margin-bottom:5px;color:inherit}
+#missionForecastAdvice div{font-weight:600}

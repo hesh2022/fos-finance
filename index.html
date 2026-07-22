@@ -104,7 +104,7 @@
       </div>
 
       <section id="safetyAdviceCard" class="panel safety-advice status-green">
-        <span class="eyebrow">Today's advice</span>
+        <span class="eyebrow">Forecast advice</span>
         <h2 id="safetyAdviceTitle">Your upcoming bills are covered.</h2>
         <p id="safetyAdviceText">Your Main account is currently safe to spend.</p>
         <div class="safety-numbers">
@@ -157,6 +157,11 @@
             <label>Sadaqah<input id="allocationSadaqah" type="number" min="0" step="0.01" /></label>
             <label>Gold<input id="allocationGold" type="number" min="0" step="0.01" /></label>
             <label>Tax<input id="allocationTax" type="number" min="0" step="0.01" /></label>
+          </div>
+
+          <div id="missionForecastAdvice" class="allocation-feedback status-orange hidden">
+            <strong id="missionForecastTitle">Forecast recommendation</strong>
+            <div id="missionForecastText">FOS is checking whether later missions can cover future bills.</div>
           </div>
 
           <div class="protected-bills-box">
@@ -438,7 +443,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js?v=mission131"></script>
-  <script src="app.js?v=mission140"></script>
+  <script src="app.js?v=mission150"></script>
   <script src="cloud.js?v=mission131"></script>
 </body>
 </html>
