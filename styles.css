@@ -463,3 +463,24 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .forecast-metric.forecast-gap{font-size:16px;font-weight:900}
 .forecast-empty{font-size:13px;color:var(--muted)}
 @media(max-width:520px){.forecast-paycheck,.forecast-metric{gap:8px}.forecast-paycheck span,.forecast-metric span{max-width:70%}}
+
+/* FOS v1.7 — simple colour-coded 60-day cash-flow map */
+.shortfall-bucket,.shortfall-account-row{border-color:#e7b44a!important;background:#fff8e8!important}
+.forecast-simple{background:#f7f9fc!important;border:1px solid var(--line)!important;color:var(--ink)!important}
+.forecast-simple>strong{font-size:20px;display:block;margin-bottom:5px}
+.forecast-breakdown{display:grid;gap:10px}
+.forecast-window{font-size:13px;font-weight:800;color:var(--muted);margin:2px 0 4px}
+.forecast-card{padding:14px 16px;border-radius:14px;border-left:6px solid;display:grid;gap:9px;background:#fff}
+.forecast-card>div:first-child{display:grid;gap:3px}
+.forecast-card small{color:var(--muted);font-weight:600}
+.forecast-card-row{display:flex;justify-content:space-between;gap:14px;align-items:center}
+.forecast-card-row span{color:var(--muted)}
+.forecast-card-row strong{white-space:nowrap}
+.forecast-total{padding-top:8px;border-top:1px solid rgba(20,35,60,.12);font-size:16px}
+.forecast-blue{border-color:#2f80ed;background:#eef6ff}
+.forecast-green{border-color:#239b56;background:#effaf3}
+.forecast-amber{border-color:#e49a17;background:#fff7e6}
+.forecast-red{border-color:#cf3f32;background:#fff0ef}
+.forecast-neutral{border-color:#8390a5;background:#f5f7fa}
+.current-bill-choice{border-left:5px solid #2f80ed}
+@media(max-width:600px){.forecast-card-row{align-items:flex-start}.forecast-card-row span{max-width:68%}}

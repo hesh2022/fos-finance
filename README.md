@@ -1,10 +1,12 @@
-# FOS v1.3 — Review & Allocate
+# FOS v1.7 — 60-Day Cash-Flow Map
 
-Deploy the contents of this folder to GitHub Pages. Existing local and Supabase data is migrated to schema version 5.
+This build separates bills due before the next paycheck from later timing gaps.
 
-Important behaviour: starting a mission only opens the proposed allocation. Account balances and bill reservations change only after confirmation.
-
-
-## Forecast Engine
-
-The allocation screen now scans all known future missions and bills. If a later mission cannot fully cover a bill due after it, FOS recommends protecting that bill from the current mission. The dashboard also calculates a Suggested Hold in Main for future bills that expected missions cannot cover.
+Key changes:
+- Strict 60-day forecast window
+- Chronological use of every expected paycheck entered inside the window
+- Blue current-cycle bills, green paycheck-covered cycles, amber Shortfall Reserve, red remaining gaps
+- New Shortfall Reserve account
+- Mission allocation separates Bills Due Now from Shortfall Reserve
+- Existing Shortfall Reserve is released into Bills when protected bills enter the current cycle
+- Actual amount received recalculates the full allocation after Change/Enter
