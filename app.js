@@ -22,7 +22,7 @@ const DEFAULT_STATE = {
   bills: [],
   transfers: [],
   activeMission: null,
-  schemaVersion: 8
+  schemaVersion: 9
 };
 
 let state = clone(DEFAULT_STATE);
@@ -116,7 +116,7 @@ function migrateState(raw) {
     a.main = round2(a.main);
     a.selectedBillIds = Array.isArray(a.selectedBillIds) ? a.selectedBillIds.map(String) : [];
   }
-  next.schemaVersion = 8;
+  next.schemaVersion = 9;
   return next;
 }
 
@@ -131,6 +131,13 @@ function loadState() {
   if (rawText) {
     try { state = migrateState(JSON.parse(rawText)); }
     catch (error) { console.error("FOS saved data could not be parsed; defaults loaded without deleting the old data.", error); }
+  }
+  if (state.activeMission && !state.activeMission.confirmed) {
+    const income = state.incomes.find(i=>i.id===state.activeMission.incomeId);
+    if (income) {
+      const received = round2(state.activeMission.allocation?.received || income.amount);
+      state.activeMission.allocation = makeSuggestedAllocation(income, received);
+    }
   }
   unlockDueRecurringBills();
   persistState(false);
@@ -338,10 +345,15 @@ function buildForecastPlan(referenceIncome = null) {
     .sort((a,b)=>a.date.localeCompare(b.date));
   const nextIncome = futureIncomes[0] || null;
   const splitDate = nextIncome?.date || endExclusive;
-  const occurrences = getUnpaidBillsInWindow(referenceDate, endExclusive)
-    .filter(x => !x.bill.missionId);
-  const currentItems = occurrences.filter(x => x.dueDate < splitDate);
-  const futureItems = occurrences.filter(x => x.dueDate >= splitDate);
+
+  // Current-cycle bills are the actual saved bills due before the next paycheck.
+  // Recurrences are expanded only after the next paycheck, so the mission bill list,
+  // dashboard and allocation all use the same current-cycle number.
+  const currentBills = state.bills
+    .filter(b => b.status !== "Paid" && !b.missionId)
+    .filter(b => b.dueDate >= referenceDate && b.dueDate < splitDate)
+    .sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const currentItems = currentBills.map(b=>({ bill:b, dueDate:b.dueDate, amount:getBillAmountInAUD(b), occurrenceKey:`${b.id}@${b.dueDate}` }));
   const currentGross = round2(currentItems.reduce((s,x)=>s+x.amount,0));
   const billsFree = freeBillsBalance();
   const afterBills = Math.max(0, round2(currentGross - billsFree));
@@ -349,9 +361,14 @@ function buildForecastPlan(referenceIncome = null) {
   const shortfallRemaining = Math.max(0, round2(state.accounts.shortfall - shortfallUsedNow));
   const currentNeed = Math.max(0, round2(afterBills - shortfallUsedNow));
 
+  const futureItems = getUnpaidBillsInWindow(splitDate, endExclusive)
+    .filter(x => !x.bill.missionId)
+    .sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+
   const sources = [];
-  if (shortfallRemaining > 0) sources.push({ id:"SHORTFALL", type:"reserve", label:"Existing Shortfall Reserve", date:referenceDate, net:shortfallRemaining, remaining:shortfallRemaining, used:0 });
+  if (shortfallRemaining > 0) sources.push({ id:"SHORTFALL", type:"reserve", label:"Existing Shortfall Reserve", date:splitDate, net:shortfallRemaining, remaining:shortfallRemaining, used:0 });
   futureIncomes.forEach(i=>sources.push({ id:i.id, type:"income", income:i, label:i.source, date:i.date, net:netIncomeAfterTax(i), remaining:netIncomeAfterTax(i), used:0 }));
+
   const gaps=[]; const covered=[];
   for (const item of futureItems) {
     let need=item.amount;
@@ -363,6 +380,7 @@ function buildForecastPlan(referenceIncome = null) {
     }
     if(need>0.0001) gaps.push({...item,gap:need});
   }
+
   const futureBillsTotal=round2(futureItems.reduce((s,x)=>s+x.amount,0));
   const futureGap=round2(gaps.reduce((s,x)=>s+x.gap,0));
   const cycles=[];
@@ -372,7 +390,7 @@ function buildForecastPlan(referenceIncome = null) {
     const source=sources.find(x=>x.id===income.id);
     cycles.push({income,start:income.date,end:addDaysISO(nextDate,-1),bills,total:round2(bills.reduce((s,x)=>s+x.amount,0)),net:netIncomeAfterTax(income),used:source?.used||0,remaining:source?.remaining||0});
   });
-  return { referenceDate,horizonEnd,endExclusive,nextIncome,futureIncomes,currentItems,currentGross,billsFree,shortfallUsedNow,shortfallRemaining,currentNeed,futureItems,futureBillsTotal,sources,covered,gaps,futureGap,cycles };
+  return { referenceDate,horizonEnd,endExclusive,nextIncome,futureIncomes,currentBills,currentItems,currentGross,billsFree,shortfallUsedNow,shortfallRemaining,currentNeed,futureItems,futureBillsTotal,sources,covered,gaps,futureGap,cycles };
 }
 
 function calculateSafetyAdvice() {
@@ -382,7 +400,7 @@ function calculateSafetyAdvice() {
 }
 function forecastForMission(income) {
   const plan=buildForecastPlan(income);
-  return { recommendedBillIds:currentCycleBills(income).map(b=>b.id),recommendedTotal:plan.futureGap,items:plan.gaps,plan };
+  return { recommendedBillIds:plan.currentBills.map(b=>b.id),recommendedTotal:plan.futureGap,items:plan.gaps,plan };
 }
 
 function suggestedSadaqah(received, tax, bills, shortfall = 0) {
@@ -395,7 +413,7 @@ function makeSuggestedAllocation(income, receivedOverride = null) {
   const tax=income.taxDeducted==="Yes"?0:round2(received*Number(state.policy.taxRate||0)/100);
   let available=Math.max(0,round2(received-tax));
   const plan=buildForecastPlan(income);
-  const selectedBillIds=currentCycleBills(income).map(b=>b.id);
+  const selectedBillIds=plan.currentBills.map(b=>b.id);
   const bills=Math.min(available,plan.currentNeed);
   available=Math.max(0,round2(available-bills));
   const shortfall=Math.min(available,plan.futureGap);
@@ -436,18 +454,18 @@ function allocationFromInputs() {
 function syncAllocationReview() {
   const am=state.activeMission; if(!am || am.confirmed) return;
   const a=allocationFromInputs(); am.allocation=a;
-  const total=round2(a.tax+a.bills+a.shortfall+a.sadaqah+a.emergency+a.gold+Math.max(0,a.main));
-  const remaining=round2(a.received-a.tax-a.bills-a.shortfall-a.sadaqah-a.emergency-a.gold-Math.max(0,a.main));
+  const total=round2(a.tax+a.bills+a.shortfall+a.sadaqah+a.emergency+a.gold);
+  const remaining=Math.max(0,round2(a.received-total));
   document.getElementById("allocationBills").value=a.bills.toFixed(2);
   document.getElementById("allocationMain").value=Math.max(0,a.main).toFixed(2);
-  document.getElementById("selectedBillsTotal").textContent=`$${a.bills.toFixed(2)}`;
+  document.getElementById("selectedBillsTotal").textContent=`$${selectedGross.toFixed(2)}`;
   document.getElementById("allocationTotal").textContent=`$${total.toFixed(2)}`;
   document.getElementById("allocationRemaining").textContent=`$${remaining.toFixed(2)}`;
   const feedback=document.getElementById("allocationFeedback"), confirm=document.getElementById("confirmAllocationBtn");
   const invalid=[a.received,a.tax,a.shortfall,a.sadaqah,a.emergency,a.gold].some(v=>v<0) || a.main < -0.0001;
   if(invalid){ feedback.className="allocation-feedback status-red"; feedback.textContent="Allocation exceeds the amount received. Reduce one or more amounts."; confirm.disabled=true; }
   else if(Math.abs(remaining)>0.009){ feedback.className="allocation-feedback status-orange"; feedback.textContent="Some money is not balanced yet. Review the figures."; confirm.disabled=true; }
-  else { feedback.className="allocation-feedback status-green"; feedback.textContent="Balanced and ready to confirm."; confirm.disabled=false; }
+  else { feedback.className="allocation-feedback status-green"; feedback.textContent="Balanced and ready to confirm. The remaining amount will stay in Main."; confirm.disabled=false; }
   persistState(false);
 }
 function populateAllocationInputs(a) {
@@ -490,7 +508,7 @@ function renderMission() {
       <div class="forecast-card ${stillGap>0.009?'forecast-red':'forecast-green'}"><div class="forecast-card-row forecast-total"><span>${stillGap>0.009?'Still unfunded':'Forecast protected'}</span><strong>$${stillGap.toFixed(2)}</strong></div></div>`;
   }
   const c=$("missionBillChoices"); c.innerHTML="";
-  const bills=currentCycleBills(income);
+  const bills=plan.currentBills;
   if(!bills.length)c.innerHTML='<div class="empty-state">No bills are due before the next paycheck.</div>';
   bills.forEach(b=>{const row=document.createElement("label");row.className="bill-choice current-bill-choice";row.innerHTML=`<input class="mission-bill-checkbox" type="checkbox" value="${b.id}" ${(a.selectedBillIds||[]).includes(b.id)?"checked":""}><span><strong>${escapeHTML(b.name)}</strong><small>Due ${formatDisplayDate(b.dueDate)}</small><small class="forecast-tag current-cycle-tag">Due now · Bills account</small></span><strong>$${getBillAmountInAUD(b).toFixed(2)}</strong>`;c.appendChild(row);});
   syncAllocationReview();
@@ -609,8 +627,7 @@ function renderAll() {
       adviceText.textContent="Bills due now and bills after later paychecks are covered by the balances and income entered in FOS.";
     }
   }
-  const due=calculateBillsDueBeforePayday();
-  if ($("homeBills")) $("homeBills").textContent=`$${due.total.toFixed(2)}`;
+  if ($("homeBills")) $("homeBills").textContent=`$${safety.currentNeed.toFixed(2)}`;
   const protectedCount=state.bills.filter(b=>b.status==="Reserved").length;
   const needsFundingCount=state.bills.filter(b=>billVisualStatus(b).label==="Needs funding" || billVisualStatus(b).label==="Overdue").length;
   if ($("protectedBillsCount")) $("protectedBillsCount").textContent=protectedCount;
@@ -857,4 +874,4 @@ function populateSettings(){for(const [id,key] of [["mode","mode"],["taxRate","t
 window.addEventListener("load",()=>{loadState();populateSettings();renderAll();});
 
 // Exposed only for automated verification; harmless in production.
-window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},calculateBillsDueBeforePayday,calculateSafetyAdvice,buildForecastPlan,forecastForMission,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation,openAccountEditor,reservedBillsThatWouldLoseProtection,unreserveBillsToMatchBalance};
+window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},setStateRaw:s=>{state=migrateState(s);},calculateBillsDueBeforePayday,calculateSafetyAdvice,buildForecastPlan,forecastForMission,makeSuggestedAllocation,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation,openAccountEditor,reservedBillsThatWouldLoseProtection,unreserveBillsToMatchBalance};
