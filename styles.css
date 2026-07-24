@@ -451,3 +451,15 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .undo-toast { position: fixed; left: 50%; bottom: 86px; transform: translateX(-50%); z-index: 40; width: min(460px, calc(100% - 24px)); background: var(--ink); color: white; border-radius: 14px; padding: 13px 15px; display: flex; align-items: center; justify-content: space-between; gap: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.22); }
 .undo-toast button { border: 0; border-radius: 9px; padding: 8px 12px; font-weight: 900; cursor: pointer; background: white; color: var(--navy); }
 @media (max-width: 760px) { .account-editor-grid { grid-template-columns: 1fr; } }
+
+/* FOS v1.6.4 — transparent 60-day mission forecast */
+.forecast-breakdown{margin-top:14px;padding-top:12px;border-top:1px solid rgba(120,90,30,.18);font-weight:500!important}
+.forecast-window{margin-bottom:10px;font-size:13px;font-weight:800}
+.forecast-paychecks{display:grid;gap:7px;margin:10px 0}
+.forecast-paycheck,.forecast-metric{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
+.forecast-paycheck span,.forecast-metric span{color:var(--muted)}
+.forecast-paycheck strong,.forecast-metric strong{margin:0!important;white-space:nowrap;color:inherit!important}
+.forecast-summary{display:grid;gap:7px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(120,90,30,.14)}
+.forecast-metric.forecast-gap{font-size:16px;font-weight:900}
+.forecast-empty{font-size:13px;color:var(--muted)}
+@media(max-width:520px){.forecast-paycheck,.forecast-metric{gap:8px}.forecast-paycheck span,.forecast-metric span{max-width:70%}}

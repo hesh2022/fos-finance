@@ -493,11 +493,44 @@ function renderMission() {
   a.sadaqah = round2(a.sadaqah);
   populateAllocationInputs(a);
   const forecast = forecastForMission(income);
-  const forecastBox=document.getElementById("missionForecastAdvice"), forecastTitle=document.getElementById("missionForecastTitle"), forecastText=document.getElementById("missionForecastText");
+  const forecastBox=document.getElementById("missionForecastAdvice"), forecastTitle=document.getElementById("missionForecastTitle"), forecastText=document.getElementById("missionForecastText"), forecastBreakdown=document.getElementById("missionForecastBreakdown");
   if(forecastBox&&forecastTitle&&forecastText){
+    const plan = buildForecastPlan(income);
+    const futureBillsTotal = round2(plan.coveredByFuture.reduce((sum,item)=>sum+item.amount,0) + plan.needsEarlierMission.reduce((sum,item)=>sum+item.amount,0));
+    const laterIncomeNet = round2(plan.futureIncomes.reduce((sum,slot)=>sum+netIncomeAfterTax(slot.income),0));
+    const coveredByLater = round2(plan.coveredByFuture.reduce((sum,item)=>sum+item.amount,0));
+    const selectedNow = round2((a.selectedBillIds||[]).reduce((sum,id)=>{
+      const item=plan.needsEarlierMission.find(x=>x.bill.id===id); return sum+(item?item.amount:0);
+    },0));
+    const remainingAfterThisMission = Math.max(0,round2(forecast.recommendedTotal-selectedNow));
     forecastBox.classList.remove("hidden");
-    if(forecast.items.length){const first=forecast.items[0];forecastBox.className="allocation-feedback status-orange";forecastTitle.textContent=`Future shortfall detected: $${forecast.recommendedTotal.toFixed(2)}`;forecastText.textContent=forecast.items.length===1?`Protect ${first.bill.name} now. It is due ${formatDisplayDate(first.bill.dueDate)} and later missions are not expected to cover it.`:`Protect ${forecast.items.length} future bills now because later missions are not expected to cover them in full.`;}
-    else{forecastBox.className="allocation-feedback status-green";forecastTitle.textContent="Forecast looks covered";forecastText.textContent="Later missions are expected to cover the remaining future bills.";}
+    if(forecast.items.length){
+      forecastBox.className="allocation-feedback status-orange";
+      forecastTitle.textContent=`Future funding gap: $${forecast.recommendedTotal.toFixed(2)}`;
+      forecastText.textContent=`This is the amount still uncovered after FOS applies every eligible later paycheck within the 60-day window. It is not automatically the amount taken from this mission.`;
+    } else {
+      forecastBox.className="allocation-feedback status-green";
+      forecastTitle.textContent="60-day forecast is covered";
+      forecastText.textContent="The later paychecks shown below are sufficient for the future bills in this forecast window.";
+    }
+    if(forecastBreakdown){
+      const paycheckRows = plan.futureIncomes.length ? plan.futureIncomes.map(slot=>{
+        const gross=round2(slot.income.amount), net=netIncomeAfterTax(slot.income);
+        const used=round2(plan.coveredByFuture.filter(x=>x.income.id===slot.income.id).reduce((sum,x)=>sum+x.amount,0));
+        return `<div class="forecast-paycheck"><span>${escapeHTML(slot.income.source||"Expected paycheck")} · ${formatDisplayDate(slot.income.date)}<br><small>$${gross.toFixed(2)} gross · $${net.toFixed(2)} available after tax</small></span><strong>$${used.toFixed(2)} used</strong></div>`;
+      }).join("") : '<div class="forecast-empty">No later paycheck is entered inside this 60-day window.</div>';
+      forecastBreakdown.innerHTML=`
+        <div class="forecast-window">Forecast window: ${formatDisplayDate(plan.referenceDate)} to ${formatDisplayDate(plan.horizonEnd)}</div>
+        <div class="forecast-paychecks">${paycheckRows}</div>
+        <div class="forecast-summary">
+          <div class="forecast-metric"><span>Future bills inside 60 days</span><strong>$${futureBillsTotal.toFixed(2)}</strong></div>
+          <div class="forecast-metric"><span>Later paychecks available after tax</span><strong>$${laterIncomeNet.toFixed(2)}</strong></div>
+          <div class="forecast-metric"><span>Bills covered by later paychecks</span><strong>−$${coveredByLater.toFixed(2)}</strong></div>
+          <div class="forecast-metric forecast-gap"><span>True future funding gap</span><strong>$${forecast.recommendedTotal.toFixed(2)}</strong></div>
+          <div class="forecast-metric"><span>Selected for protection from this mission</span><strong>$${selectedNow.toFixed(2)}</strong></div>
+          <div class="forecast-metric"><span>Still unfunded after this mission</span><strong>$${remainingAfterThisMission.toFixed(2)}</strong></div>
+        </div>`;
+    }
   }
   const c=document.getElementById("missionBillChoices"); c.innerHTML="";
   const bills=eligibleBillsForMission(income); const recommended=new Set(forecast.recommendedBillIds);
