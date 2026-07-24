@@ -319,13 +319,6 @@
             <strong id="needsFundingCount">0</strong>
           </div>
         </div>
-        <div class="bill-cycle-legend" aria-label="Bill colour guide">
-          <span class="legend-blue">Due this cycle</span>
-          <span class="legend-green">Covered by future income</span>
-          <span class="legend-amber">Future funding needed</span>
-          <span class="legend-red">Overdue</span>
-          <span class="legend-grey">Later bill</span>
-        </div>
         <div id="billsList" class="list"></div>
       </section>
     </section>
@@ -374,6 +367,18 @@
             </form>
           </div>
         </div>
+        <div class="reconcile-box">
+          <span class="eyebrow">Sadaqah</span>
+          <h3>Record Sadaqah given</h3>
+          <p>This reduces the Sadaqah account without counting it as ordinary spending.</p>
+          <form id="sadaqahGivenForm" class="form-grid compact">
+            <label>
+              Amount given (AUD)
+              <input id="sadaqahGivenAmount" type="number" min="0.01" step="0.01" required />
+            </label>
+            <button type="submit" class="primary-btn full">Record Sadaqah given</button>
+          </form>
+        </div>
       </section>
 
 <section class="panel">
@@ -414,10 +419,22 @@
             <input id="goldTarget" type="number" min="0" step="100" />
           </label>
           <label>
+            Opening emergency balance
+            <input id="openingEmergency" type="number" min="0" step="100" />
+          </label>
+          <label>
+            Opening gold balance
+            <input id="openingGold" type="number" min="0" step="100" />
+          </label>
+          <label>
             1 AUD = how many EGP?
             <input id="exchangeRate" type="number" min="0.01" step="0.01" />
           </label>
-         <label>
+          <label>
+            Safe to spend per payday
+            <input id="lifestyleAllowance" type="number" min="0" step="50" />
+          </label>
+          <label>
             Stability emergency %
             <input id="stabilityEmergencyPct" type="number" min="0" max="100" step="5" />
           </label>

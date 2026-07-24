@@ -28,6 +28,9 @@ const DEFAULT_STATE = {
 let state = clone(DEFAULT_STATE);
 let saveTimer = null;
 
+// Shared DOM helper used by every screen renderer.
+const $ = id => document.getElementById(id);
+
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function round2(value) {
   const n = Number(value);
