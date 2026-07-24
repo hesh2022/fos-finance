@@ -349,12 +349,12 @@ function buildForecastPlan(referenceIncome = null) {
   const nextIncome = futureIncomes[0] || null;
   const splitDate = nextIncome?.date || endExclusive;
 
-  // Current-cycle bills are the actual saved bills due before the next paycheck.
+  // Current-cycle bills include every unpaid overdue bill plus bills due before the next paycheck.
   // Recurrences are expanded only after the next paycheck, so the mission bill list,
   // dashboard and allocation all use the same current-cycle number.
   const currentBills = state.bills
     .filter(b => b.status !== "Paid" && !b.missionId)
-    .filter(b => b.dueDate >= referenceDate && b.dueDate < splitDate)
+    .filter(b => b.dueDate < splitDate)
     .sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
   const currentItems = currentBills.map(b=>({ bill:b, dueDate:b.dueDate, amount:getBillAmountInAUD(b), occurrenceKey:`${b.id}@${b.dueDate}` }));
   const currentGross = round2(currentItems.reduce((s,x)=>s+x.amount,0));
@@ -621,6 +621,7 @@ function renderAll() {
   if ($("accLifestyle")) $("accLifestyle").textContent=`$${safety.trulySafe.toFixed(2)}`;
   if ($("homeShortfall")) $("homeShortfall").textContent=`$${state.accounts.shortfall.toFixed(2)}`;
   if ($("homeSadaqah")) $("homeSadaqah").textContent=`$${state.accounts.sadaqah.toFixed(2)}`;
+  if ($("homeTax")) $("homeTax").textContent=`$${state.accounts.tax.toFixed(2)}`;
   if ($("homeSafeSpend")) $("homeSafeSpend").textContent=`$${safety.trulySafe.toFixed(2)}`;
   if ($("safetyMainBalance")) $("safetyMainBalance").textContent=`$${state.accounts.main.toFixed(2)}`;
   if ($("safetyHold")) {
@@ -689,8 +690,8 @@ function renderAll() {
 function escapeHTML(v) { return String(v).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
 function billVisualStatus(b, plan = null){
   if(b.status==="Paid") return {label:"Paid",tone:"green",cycle:"paid"};
-  if(b.dueDate<todayISO()) return {label:"Overdue",tone:"red",cycle:"overdue"};
   if(b.status==="Reserved") return {label:"Protected",tone:"orange",cycle:"protected"};
+  if(b.dueDate<todayISO()) return {label:"Overdue",tone:"red",cycle:"overdue"};
 
   const forecast = plan || buildForecastPlan(null);
   const currentIds = new Set((forecast.currentBills || []).map(x=>x.id));
@@ -770,7 +771,22 @@ window.editIncome=id=>{ const i=state.incomes.find(x=>x.id===id); if(!i||i.statu
 window.deleteIncome=id=>{ const i=state.incomes.find(x=>x.id===id); if(!i)return; if(i.status!=="Pending"){ notify("Processed or in-progress income cannot be deleted automatically. Use account reconciliation if needed."); return; } if(confirm("Delete this pending income?")){ state.incomes=state.incomes.filter(x=>x.id!==id); persistState(); } };
 
 document.getElementById("incomeForm")?.addEventListener("submit",e=>{ e.preventDefault(); const form=e.currentTarget, id=form.dataset.editId; const data={source:document.getElementById("incomeSource").value.trim(),amount:round2(document.getElementById("incomeAmount").value),date:document.getElementById("incomeDate").value,taxDeducted:document.getElementById("taxDeducted").value}; if(data.amount<=0)return notify("Enter an income greater than zero."); if(id){const i=state.incomes.find(x=>x.id===id);if(i&&i.status==="Pending")Object.assign(i,data);delete form.dataset.editId;}else state.incomes.push({id:`INC-${Date.now()}`,status:"Pending",...data}); form.reset(); persistState();});
-document.getElementById("billForm")?.addEventListener("submit",e=>{ e.preventDefault(); const form=e.currentTarget,id=form.dataset.editId; const data={name:document.getElementById("billName").value.trim(),currency:document.getElementById("billCurrency").value,amount:round2(document.getElementById("billAmount").value),category:document.getElementById("billCategory").value,dueDate:document.getElementById("billDueDate").value,recurring:normalizeFrequency(document.getElementById("billRecurring").value)}; if(data.amount<=0)return notify("Enter a bill amount greater than zero."); if(id){const b=state.bills.find(x=>x.id===id);if(b)Object.assign(b,data);delete form.dataset.editId;}else state.bills.push({id:`BILL-${Date.now()}`,status:"Unpaid",lastPaidDate:null,paidForDueDate:null,...data}); form.reset(); document.getElementById("billFormWrap").classList.add("hidden"); persistState();});
+function findDuplicateBill(data, excludeId = null) {
+  const normalizedName = String(data.name || "").trim().toLowerCase();
+  return state.bills.find(b => b.id !== excludeId
+    && b.status !== "Paid"
+    && String(b.name || "").trim().toLowerCase() === normalizedName
+    && String(b.currency || "AUD") === String(data.currency || "AUD")
+    && Math.abs(round2(b.amount) - round2(data.amount)) < 0.001
+    && String(b.dueDate || "") === String(data.dueDate || "")
+    && normalizeFrequency(b.recurring) === normalizeFrequency(data.recurring));
+}
+document.getElementById("billForm")?.addEventListener("submit",e=>{ e.preventDefault(); const form=e.currentTarget,id=form.dataset.editId; const data={name:document.getElementById("billName").value.trim(),currency:document.getElementById("billCurrency").value,amount:round2(document.getElementById("billAmount").value),category:document.getElementById("billCategory").value,dueDate:document.getElementById("billDueDate").value,recurring:normalizeFrequency(document.getElementById("billRecurring").value)}; if(data.amount<=0)return notify("Enter a bill amount greater than zero."); const duplicate=findDuplicateBill(data,id||null); if(duplicate&&!confirm(`This bill appears to already exist:
+
+${duplicate.name} — ${round2(duplicate.amount).toFixed(2)} ${duplicate.currency||"AUD"}
+Due ${formatDisplayDate(duplicate.dueDate)} · ${normalizeFrequency(duplicate.recurring)}
+
+Save another separate bill anyway?`))return; if(id){const b=state.bills.find(x=>x.id===id);if(b)Object.assign(b,data);delete form.dataset.editId;}else state.bills.push({id:`BILL-${Date.now()}`,status:"Unpaid",lastPaidDate:null,paidForDueDate:null,...data}); form.reset(); document.getElementById("billFormWrap").classList.add("hidden"); persistState();});
 document.getElementById("toggleBillFormBtn")?.addEventListener("click",()=>{const f=document.getElementById("billForm");delete f.dataset.editId;f.reset();document.getElementById("billFormWrap").classList.toggle("hidden");});
 document.getElementById("cancelBillEditBtn")?.addEventListener("click",()=>{delete document.getElementById("billForm").dataset.editId;document.getElementById("billFormWrap").classList.add("hidden");});
 

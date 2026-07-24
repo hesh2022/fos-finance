@@ -1,17 +1,17 @@
-# FOS v1.7.4 — Mission Summary Review Fix
+# FOS v1.7.7 — Overdue Priority, Duplicate Protection & Tax Card
 
-This build corrects the mission review presentation and a JavaScript rendering defect.
+This controlled update keeps the verified 60-day forecast logic unchanged and adds three requested improvements.
 
 ## Changes
-- Shows Current bills funded now.
-- Shows Added to Future Bills Fund.
-- Shows Future gap still unfunded.
-- Keeps the current-cycle bill list and its gross selected total separate.
-- Recalculates the three summary figures whenever an allocation field or bill selection changes.
-- Fixes an undefined `selectedGross` variable that could interrupt mission-page rendering.
+- Adds a Tax account card to the Home dashboard, linked to the same Tax balance used throughout FOS.
+- Carries every unpaid overdue bill into the next mission as first-priority current-cycle funding.
+- Keeps an overdue bill red until a mission allocates money to it; after allocation it is shown as Protected.
+- Detects active duplicate bills with the same name, amount, currency, due date and frequency.
+- Warns before saving a duplicate but permits an intentional separate bill after confirmation.
+- Removing one duplicate removes only that saved bill record.
 
-## Verification scenario
-For AUD 17,000 received, AUD 4,250 tax, AUD 2,000 current bills, AUD 10,750 Future Bills Fund, and a forecast gap of AUD 14,577.69:
-- Total allocated: AUD 17,000
-- Remaining to Main: AUD 0
-- Future gap still unfunded: AUD 3,827.69
+## Allocation order
+Tax → overdue bills → other bills due before the following paycheck → Future Bills Fund → Sadaqah → Emergency → Gold → Main.
+
+## Compatibility
+Existing saved data is preserved. Current overdue bills that the user manually removes are not recreated.
