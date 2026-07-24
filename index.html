@@ -82,7 +82,7 @@
           <small id="homeBillsSub">Before next payday</small>
         </article>
         <article class="bucket shortfall-bucket">
-          <span>Shortfall Reserve</span>
+          <span>Future Bills Fund</span>
           <strong id="homeShortfall">$0</strong>
           <small>Protected for future timing gaps</small>
         </article>
@@ -158,7 +158,7 @@
           <p class="review-note">Review the suggested plan and change any amount before confirming. Nothing moves until you confirm.</p>
           <div class="allocation-grid">
             <label>Bills due now<input id="allocationBills" type="number" min="0" step="0.01" readonly /></label>
-            <label>Shortfall Reserve<input id="allocationShortfall" type="number" min="0" step="0.01" /></label>
+            <label>Future Bills Fund<input id="allocationShortfall" type="number" min="0" step="0.01" /></label>
             <label>Emergency<input id="allocationEmergency" type="number" min="0" step="0.01" /></label>
             <label>Sadaqah<input id="allocationSadaqah" type="number" min="0" step="0.01" /></label>
             <label>Gold<input id="allocationGold" type="number" min="0" step="0.01" /></label>
@@ -171,8 +171,14 @@
             <div id="missionForecastBreakdown" class="forecast-breakdown"></div>
           </div>
 
-          <div class="protected-bills-box">
-            <div class="panel-heading"><div><span class="eyebrow">One bill · one mission</span><h3>Bills protected by this mission</h3></div><strong id="selectedBillsTotal">$0.00</strong></div>
+          <div class="protected-bills-box mission-protection-summary">
+            <div class="panel-heading"><div><span class="eyebrow">Mission protection summary</span><h3>What this payment will protect</h3></div></div>
+            <div class="protection-summary-grid">
+              <div class="protection-summary-item protection-blue"><span>Current bills funded now</span><strong id="missionCurrentFunded">$0.00</strong></div>
+              <div class="protection-summary-item protection-amber"><span>Added to Future Bills Fund</span><strong id="missionReserveAdded">$0.00</strong></div>
+              <div class="protection-summary-item protection-red"><span>Future gap still unfunded</span><strong id="missionGapRemaining">$0.00</strong></div>
+            </div>
+            <div class="panel-heading bill-list-heading"><div><span class="eyebrow">Current cycle</span><h3>Bills funded by this mission</h3></div><strong id="selectedBillsTotal">$0.00</strong></div>
             <div id="missionBillChoices" class="bill-choice-list"></div>
           </div>
 
@@ -191,7 +197,7 @@
           <div class="completion-summary">
             <div><span>Tax</span><strong id="summaryTax">$0</strong></div>
             <div><span>Bills due now</span><strong id="summaryBills">$0</strong></div>
-            <div><span>Shortfall Reserve</span><strong id="summaryShortfall">$0</strong></div>
+            <div><span>Future Bills Fund</span><strong id="summaryShortfall">$0</strong></div>
             <div><span>Sadaqah</span><strong id="summarySadaqah">$0</strong></div>
             <div><span>Emergency</span><strong id="summaryEmergency">$0</strong></div>
             <div><span>Gold</span><strong id="summaryGold">$0</strong></div>
@@ -313,6 +319,13 @@
             <strong id="needsFundingCount">0</strong>
           </div>
         </div>
+        <div class="bill-cycle-legend" aria-label="Bill colour guide">
+          <span class="legend-blue">Due this cycle</span>
+          <span class="legend-green">Covered by future income</span>
+          <span class="legend-amber">Future funding needed</span>
+          <span class="legend-red">Overdue</span>
+          <span class="legend-grey">Later bill</span>
+        </div>
         <div id="billsList" class="list"></div>
       </section>
     </section>
@@ -325,7 +338,7 @@
         <div class="account-list">
           <div class="account-row editable-account"><div><span>Main account</span><strong id="accMain">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="main">Edit</button></div>
           <div class="account-row editable-account"><div><span>Bills account</span><strong id="accBills">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="bills">Edit</button></div>
-          <div class="account-row editable-account shortfall-account-row"><div><span>Shortfall Reserve</span><strong id="accShortfall">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="shortfall">Edit</button></div>
+          <div class="account-row editable-account shortfall-account-row"><div><span>Future Bills Fund</span><strong id="accShortfall">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="shortfall">Edit</button></div>
           <div class="account-row editable-account"><div><span>Emergency fund</span><strong id="accEmergency">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="emergency">Edit</button></div>
           <div class="account-row editable-account"><div><span>Gold fund</span><strong id="accGold">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="gold">Edit</button></div>
           <div class="account-row editable-account"><div><span>Sadaqah account</span><strong id="accSadaqah">$0</strong></div><button type="button" class="ghost-dark-btn manage-account-btn" data-account="sadaqah">Edit</button></div>
@@ -360,18 +373,6 @@
               <button type="submit" class="primary-btn">Save correction</button>
             </form>
           </div>
-        </div>
-        <div class="reconcile-box">
-          <span class="eyebrow">Sadaqah</span>
-          <h3>Record Sadaqah given</h3>
-          <p>This reduces the Sadaqah account without counting it as ordinary spending.</p>
-          <form id="sadaqahGivenForm" class="form-grid compact">
-            <label>
-              Amount given (AUD)
-              <input id="sadaqahGivenAmount" type="number" min="0.01" step="0.01" required />
-            </label>
-            <button type="submit" class="primary-btn full">Record Sadaqah given</button>
-          </form>
         </div>
       </section>
 
@@ -413,22 +414,10 @@
             <input id="goldTarget" type="number" min="0" step="100" />
           </label>
           <label>
-            Opening emergency balance
-            <input id="openingEmergency" type="number" min="0" step="100" />
-          </label>
-          <label>
-            Opening gold balance
-            <input id="openingGold" type="number" min="0" step="100" />
-          </label>
-          <label>
             1 AUD = how many EGP?
             <input id="exchangeRate" type="number" min="0.01" step="0.01" />
           </label>
-          <label>
-            Safe to spend per payday
-            <input id="lifestyleAllowance" type="number" min="0" step="50" />
-          </label>
-          <label>
+         <label>
             Stability emergency %
             <input id="stabilityEmergencyPct" type="number" min="0" max="100" step="5" />
           </label>
@@ -470,7 +459,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js?v=mission131"></script>
-  <script src="app.js?v=mission172"></script>
+  <script src="app.js?v=mission173"></script>
   <script src="cloud.js?v=mission131"></script>
 </body>
 </html>

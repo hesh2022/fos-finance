@@ -366,7 +366,7 @@ function buildForecastPlan(referenceIncome = null) {
     .sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
 
   const sources = [];
-  if (shortfallRemaining > 0) sources.push({ id:"SHORTFALL", type:"reserve", label:"Existing Shortfall Reserve", date:splitDate, net:shortfallRemaining, remaining:shortfallRemaining, used:0 });
+  if (shortfallRemaining > 0) sources.push({ id:"SHORTFALL", type:"reserve", label:"Existing Future Bills Fund", date:splitDate, net:shortfallRemaining, remaining:shortfallRemaining, used:0 });
   futureIncomes.forEach(i=>sources.push({ id:i.id, type:"income", income:i, label:i.source, date:i.date, net:netIncomeAfterTax(i), remaining:netIncomeAfterTax(i), used:0 }));
 
   const gaps=[]; const covered=[];
@@ -418,6 +418,7 @@ function makeSuggestedAllocation(income, receivedOverride = null) {
   available=Math.max(0,round2(available-bills));
   const shortfall=Math.min(available,plan.futureGap);
   available=Math.max(0,round2(available-shortfall));
+  // Allocation priority: tax → bills due now → Future Bills Fund → Sadaqah → Emergency → Gold → Main.
   const sadaqah=suggestedSadaqah(received,tax,bills,shortfall);
   available=Math.max(0,round2(available-sadaqah));
   const emergencyGap=Math.max(0,round2(Number(state.policy.emergencyTarget||0)-state.accounts.emergency));
@@ -456,9 +457,27 @@ function syncAllocationReview() {
   const a=allocationFromInputs(); am.allocation=a;
   const total=round2(a.tax+a.bills+a.shortfall+a.sadaqah+a.emergency+a.gold);
   const remaining=Math.max(0,round2(a.received-total));
+  const selectedGross=round2((a.selectedBillIds||[]).reduce((sum,id)=>{
+    const bill=state.bills.find(b=>b.id===id);
+    return sum+(bill?getBillAmountInAUD(bill):0);
+  },0));
+  const income=state.incomes.find(i=>i.id===am.incomeId);
+  const plan=income?buildForecastPlan(income):null;
+  const futureGap=round2(plan?.futureGap||0);
+  const gapRemaining=Math.max(0,round2(futureGap-a.shortfall));
   document.getElementById("allocationBills").value=a.bills.toFixed(2);
   document.getElementById("allocationMain").value=Math.max(0,a.main).toFixed(2);
   document.getElementById("selectedBillsTotal").textContent=`$${selectedGross.toFixed(2)}`;
+  const currentFundedEl=document.getElementById("missionCurrentFunded");
+  const reserveAddedEl=document.getElementById("missionReserveAdded");
+  const gapRemainingEl=document.getElementById("missionGapRemaining");
+  if(currentFundedEl) currentFundedEl.textContent=`$${a.bills.toFixed(2)}`;
+  if(reserveAddedEl) reserveAddedEl.textContent=`$${a.shortfall.toFixed(2)}`;
+  if(gapRemainingEl){
+    gapRemainingEl.textContent=`$${gapRemaining.toFixed(2)}`;
+    gapRemainingEl.closest('.protection-summary-item')?.classList.toggle('protection-green',gapRemaining<0.01);
+    gapRemainingEl.closest('.protection-summary-item')?.classList.toggle('protection-red',gapRemaining>=0.01);
+  }
   document.getElementById("allocationTotal").textContent=`$${total.toFixed(2)}`;
   document.getElementById("allocationRemaining").textContent=`$${remaining.toFixed(2)}`;
   const feedback=document.getElementById("allocationFeedback"), confirm=document.getElementById("confirmAllocationBtn");
@@ -502,9 +521,9 @@ function renderMission() {
   if(forecastBreakdown){
     const cycleCards=plan.cycles.map(c=>`<div class="forecast-card forecast-green"><div><strong>${escapeHTML(c.income.source)} · ${formatDisplayDate(c.income.date)}</strong><small>$${c.net.toFixed(2)} available after tax</small></div><div class="forecast-card-row"><span>Bills until ${formatDisplayDate(c.end)}</span><strong>$${c.total.toFixed(2)}</strong></div><div class="forecast-card-row"><span>Used from this paycheck</span><strong>$${c.used.toFixed(2)}</strong></div></div>`).join("") || '<div class="forecast-card forecast-neutral"><strong>No later paycheck entered</strong><small>FOS cannot assume future income that is not recorded.</small></div>';
     forecastBreakdown.innerHTML=`<div class="forecast-window">60-day window: ${formatDisplayDate(plan.referenceDate)} – ${formatDisplayDate(plan.horizonEnd)}</div>
-      <div class="forecast-card forecast-blue"><div><strong>Due before next paycheck</strong><small>These are current-cycle bills, not a future shortfall.</small></div><div class="forecast-card-row"><span>Total due</span><strong>$${plan.currentGross.toFixed(2)}</strong></div><div class="forecast-card-row"><span>Free money already in Bills</span><strong>−$${Math.min(plan.billsFree,plan.currentGross).toFixed(2)}</strong></div><div class="forecast-card-row"><span>Moved from Shortfall Reserve</span><strong>−$${plan.shortfallUsedNow.toFixed(2)}</strong></div><div class="forecast-card-row forecast-total"><span>Needs from this paycheck</span><strong>$${plan.currentNeed.toFixed(2)}</strong></div></div>
+      <div class="forecast-card forecast-blue"><div><strong>Due before next paycheck</strong><small>These are current-cycle bills, not a future shortfall.</small></div><div class="forecast-card-row"><span>Total due</span><strong>$${plan.currentGross.toFixed(2)}</strong></div><div class="forecast-card-row"><span>Free money already in Bills</span><strong>−$${Math.min(plan.billsFree,plan.currentGross).toFixed(2)}</strong></div><div class="forecast-card-row"><span>Moved from Future Bills Fund</span><strong>−$${plan.shortfallUsedNow.toFixed(2)}</strong></div><div class="forecast-card-row forecast-total"><span>Needs from this paycheck</span><strong>$${plan.currentNeed.toFixed(2)}</strong></div></div>
       ${cycleCards}
-      <div class="forecast-card forecast-amber"><div><strong>Shortfall Reserve</strong><small>Bills that arrive before the later paycheck has enough time to cover them.</small></div><div class="forecast-card-row"><span>Remaining gap after existing reserve</span><strong>$${plan.futureGap.toFixed(2)}</strong></div><div class="forecast-card-row"><span>Reserve remaining after current bills</span><strong>$${plan.shortfallRemaining.toFixed(2)}</strong></div><div class="forecast-card-row"><span>Suggested from this mission</span><strong>$${protectedNow.toFixed(2)}</strong></div></div>
+      <div class="forecast-card forecast-amber"><div><strong>Future Bills Fund</strong><small>Bills that arrive before the later paycheck has enough time to cover them.</small></div><div class="forecast-card-row"><span>Remaining gap after existing reserve</span><strong>$${plan.futureGap.toFixed(2)}</strong></div><div class="forecast-card-row"><span>Reserve remaining after current bills</span><strong>$${plan.shortfallRemaining.toFixed(2)}</strong></div><div class="forecast-card-row"><span>Suggested from this mission</span><strong>$${protectedNow.toFixed(2)}</strong></div></div>
       <div class="forecast-card ${stillGap>0.009?'forecast-red':'forecast-green'}"><div class="forecast-card-row forecast-total"><span>${stillGap>0.009?'Still unfunded':'Forecast protected'}</span><strong>$${stillGap.toFixed(2)}</strong></div></div>`;
   }
   const c=$("missionBillChoices"); c.innerHTML="";
@@ -516,7 +535,7 @@ function renderMission() {
 function confirmAllocation() {
   const am=state.activeMission; if(!am||am.confirmed)return; const a=allocationFromInputs();
   if(a.main < -0.0001)return notify("Allocation exceeds the amount received.");
-  if(a.shortfallToBills>0&&!executeTransfer("Shortfall","Bills",a.shortfallToBills,`Shortfall reserve released for current bills: ${am.incomeSource}`,{incomeId:am.incomeId,type:"SHORTFALL_RELEASE"}))return notify("The Shortfall Reserve could not be released.");
+  if(a.shortfallToBills>0&&!executeTransfer("Shortfall","Bills",a.shortfallToBills,`Future Bills Fund released for current bills: ${am.incomeSource}`,{incomeId:am.incomeId,type:"SHORTFALL_RELEASE"}))return notify("The Future Bills Fund could not be released.");
   if(!executeTransfer("EXTERNAL","Main",a.received,`Income received: ${am.incomeSource}`,{incomeId:am.incomeId}))return;
   for(const [amount,to,memo] of [[a.tax,"Tax","Mission tax"],[a.bills,"Bills","Mission bills"],[a.shortfall,"Shortfall","Future timing reserve"],[a.sadaqah,"Sadaqah","Mission Sadaqah"],[a.emergency,"Emergency","Mission emergency"],[a.gold,"Gold","Mission gold"]]){
     if(amount>0&&!executeTransfer("Main",to,amount,`${memo}: ${am.incomeSource}`,{incomeId:am.incomeId}))return notify("Allocation could not be completed.");
@@ -619,7 +638,7 @@ function renderAll() {
         : "Fund the current-cycle bills. Later entered paychecks cover the rest of the 60-day forecast.";
     } else if (safety.futureGap > 0.009) {
       adviceCard.className="panel safety-advice forecast-amber";
-      adviceTitle.textContent=`Protect $${safety.futureGap.toFixed(2)} in Shortfall Reserve`;
+      adviceTitle.textContent=`Protect $${safety.futureGap.toFixed(2)} in Future Bills Fund`;
       adviceText.textContent="This is a timing gap after FOS applies the paychecks already entered. It is separate from bills due now.";
     } else {
       adviceCard.className="panel safety-advice forecast-green";
@@ -665,11 +684,24 @@ function renderAll() {
   safeRender("transfers", renderTransferHistory);
 }
 function escapeHTML(v) { return String(v).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
-function billVisualStatus(b){
-  if(b.status==="Paid")return {label:"Paid",tone:"green"};
-  if(b.status==="Reserved")return {label:"Reserved",tone:"orange"};
-  if(b.dueDate<todayISO())return {label:"Overdue",tone:"red"};
-  return {label:"Needs funding",tone:"red"};
+function billVisualStatus(b, plan = null){
+  if(b.status==="Paid") return {label:"Paid",tone:"green",cycle:"paid"};
+  if(b.dueDate<todayISO()) return {label:"Overdue",tone:"red",cycle:"overdue"};
+  if(b.status==="Reserved") return {label:"Protected",tone:"orange",cycle:"protected"};
+
+  const forecast = plan || buildForecastPlan(null);
+  const currentIds = new Set((forecast.currentBills || []).map(x=>x.id));
+  if(currentIds.has(b.id)) return {label:"Due this cycle",tone:"blue",cycle:"current"};
+
+  const futureOccurrences = (forecast.futureItems || []).filter(x=>x.bill?.id===b.id);
+  if(futureOccurrences.length){
+    const hasGap = (forecast.gaps || []).some(x=>x.bill?.id===b.id);
+    return hasGap
+      ? {label:"Future funding needed",tone:"orange",cycle:"future-gap"}
+      : {label:"Covered by future income",tone:"green",cycle:"future-covered"};
+  }
+
+  return {label:"Later bill",tone:"neutral",cycle:"later"};
 }
 function renderMissionQueue() {
   const container=document.getElementById("missionQueue"),totalEl=document.getElementById("expectedIncomeTotal");if(!container)return;
@@ -690,14 +722,15 @@ function renderBillsList() {
   }
 
   const safeDate = bill => String(bill?.dueDate || "9999-12-31");
+  const forecastPlan = buildForecastPlan(null);
   [...bills]
     .sort((a,b) => Number(a?.status === "Paid") - Number(b?.status === "Paid") || safeDate(a).localeCompare(safeDate(b)))
     .forEach((b,index) => {
       try {
-        const st = billVisualStatus(b || {});
+        const st = billVisualStatus(b || {}, forecastPlan);
         const mission = state.incomes.find(i => i.id === b?.missionId);
         const item = document.createElement("div");
-        item.className = `list-item bill-item status-${st.tone}`;
+        item.className = `list-item bill-item status-${st.tone} bill-cycle-${st.cycle}`;
         const billId = String(b?.id || `legacy-bill-${index}`);
         const billName = escapeHTML(b?.name || "Unnamed bill");
         const frequency = escapeHTML(normalizeFrequency(b?.recurring || "One-off"));
@@ -741,7 +774,7 @@ document.getElementById("cancelBillEditBtn")?.addEventListener("click",()=>{dele
 const ACCOUNT_LABELS = {
   main: "Main account",
   bills: "Bills account",
-  shortfall: "Shortfall Reserve",
+  shortfall: "Future Bills Fund",
   emergency: "Emergency fund",
   gold: "Gold fund",
   sadaqah: "Sadaqah account",
@@ -902,7 +935,6 @@ document.getElementById("undoLastChangeBtn")?.addEventListener("click",()=>{
   notify("Last account change undone.");
 });
 
-document.getElementById("sadaqahGivenForm")?.addEventListener("submit",e=>{e.preventDefault();const amount=round2(document.getElementById("sadaqahGivenAmount").value);if(amount<=0)return;if(state.accounts.sadaqah+0.0001<amount)return notify(`The Sadaqah account contains $${state.accounts.sadaqah.toFixed(2)}.`);if(!executeTransfer("Sadaqah","EXTERNAL",amount,"Sadaqah given",{type:"SADAQAH_GIVEN"}))return;e.currentTarget.reset();persistState();});
 document.getElementById("settingsForm")?.addEventListener("submit",e=>{e.preventDefault();for(const [key,id] of [["mode","mode"],["taxRate","taxRate"],["sadaqahRate","sadaqahRate"],["emergencyTarget","emergencyTarget"],["goldTarget","goldTarget"],["exchangeRate","exchangeRate"],["stabilityEmergencyPct","stabilityEmergencyPct"],["growthEmergencyPct","growthEmergencyPct"],["wealthEmergencyPct","wealthEmergencyPct"]]){const el=document.getElementById(id);if(el)state.policy[key]=el.type==="number"?Number(el.value):el.value;}persistState();notify("Financial policy saved.");});
 
 document.getElementById("exportDataBtn")?.addEventListener("click",()=>{persistState(false);const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`FOS-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(url);});

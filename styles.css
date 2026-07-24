@@ -484,3 +484,32 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .forecast-neutral{border-color:#8390a5;background:#f5f7fa}
 .current-bill-choice{border-left:5px solid #2f80ed}
 @media(max-width:600px){.forecast-card-row{align-items:flex-start}.forecast-card-row span{max-width:68%}}
+
+/* v1.7.3 mission protection summary */
+.protection-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:8px 0 22px}
+.protection-summary-item{border-radius:16px;padding:16px 18px;border:1px solid transparent;display:flex;flex-direction:column;gap:7px}
+.protection-summary-item span{font-size:.92rem;color:#667085}
+.protection-summary-item strong{font-size:1.35rem;color:#172238}
+.protection-blue{background:#eef6ff;border-color:#8fc4ff}
+.protection-amber{background:#fff6df;border-color:#f2bd54}
+.protection-red{background:#fff0ef;border-color:#ef9a92}
+.protection-green{background:#effaf1;border-color:#8ccf98}
+.bill-list-heading{margin-top:4px;padding-top:18px;border-top:1px solid #dbe3ee}
+@media (max-width:760px){.protection-summary-grid{grid-template-columns:1fr}}
+
+/* Bill-cycle colour coding */
+.bill-item.status-blue{border-left-color:#2f80ed;background:#eef6ff}
+.bill-item.status-green{background:#effaf3}
+.bill-item.status-orange{background:#fff7e6}
+.bill-item.status-red{background:#fff0ef}
+.bill-item.status-neutral{border-left-color:#8390a5;background:#f5f7fa}
+.status-badge.blue{background:#d9ebff;color:#1559a6}
+.status-badge.neutral{background:#e8edf3;color:#5d6878}
+.bill-cycle-current .bill-title-row strong{color:#174f91}
+.bill-cycle-future-covered .bill-title-row strong{color:#1e7042}
+.bill-cycle-future-gap .bill-title-row strong{color:#a86600}
+.bill-cycle-overdue .bill-title-row strong{color:#a52d22}
+
+.bill-cycle-legend{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 16px}
+.bill-cycle-legend span{font-size:12px;font-weight:800;padding:6px 10px;border-radius:999px}
+.legend-blue{background:#d9ebff;color:#1559a6}.legend-green{background:#daf3e4;color:#1e7042}.legend-amber{background:#ffedc7;color:#9a5d00}.legend-red{background:#ffdeda;color:#a52d22}.legend-grey{background:#e8edf3;color:#5d6878}
