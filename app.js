@@ -290,23 +290,40 @@ function calculateBillsDueBeforePayday(paydayValue = null) {
   return { gross, total: Math.max(0, round2(gross - state.accounts.bills)), count };
 }
 
+const FORECAST_DAYS = 60;
+function addDaysISO(dateString, days) {
+  const date = parseDateOnly(dateString);
+  if (!date) return dateString;
+  date.setDate(date.getDate() + Number(days || 0));
+  return toDateOnly(date);
+}
 function missionWindowEnd(income) {
   const future = getExpectedIncomes().filter(i => i.id !== income.id && i.date > income.date);
   return future[0]?.date || null;
 }
-function eligibleBillsForMission(income) {
-  const forecast = forecastForMission(income);
-  const recommended = new Set(forecast.recommendedBillIds);
-  const end = missionWindowEnd(income);
+function forecastHorizonEnd(income) {
+  return addDaysISO(income?.date || todayISO(), FORECAST_DAYS);
+}
+function currentCycleBills(income) {
+  const nextIncomeDate = missionWindowEnd(income);
+  const horizonEnd = forecastHorizonEnd(income);
+  const cycleEnd = nextIncomeDate || horizonEnd;
   return state.bills
     .filter(b => b.status !== "Paid" && !b.missionId)
-    .filter(b => b.dueDate >= income.date)
-    .filter(b => recommended.has(b.id) || !end || b.dueDate < end)
-    .sort((a,b) => {
-      const ar = recommended.has(a.id) ? 0 : 1;
-      const br = recommended.has(b.id) ? 0 : 1;
-      return ar - br || a.dueDate.localeCompare(b.dueDate);
-    });
+    .filter(b => b.dueDate >= income.date && b.dueDate < cycleEnd)
+    .sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+}
+function eligibleBillsForMission(income) {
+  const current = currentCycleBills(income);
+  const forecast = forecastForMission(income);
+  const byId = new Map();
+  current.forEach(b => byId.set(b.id, b));
+  forecast.items.forEach(item => byId.set(item.bill.id, item.bill));
+  return [...byId.values()].sort((a,b) => {
+    const ac = current.some(x => x.id === a.id) ? 0 : 1;
+    const bc = current.some(x => x.id === b.id) ? 0 : 1;
+    return ac - bc || a.dueDate.localeCompare(b.dueDate);
+  });
 }
 
 function emergencyPercent() {
@@ -322,11 +339,23 @@ function netIncomeAfterTax(income) {
 
 function buildForecastPlan(referenceIncome = null) {
   const referenceDate = referenceIncome?.date || todayISO();
-  const futureIncomes = getExpectedIncomes()
+  const horizonEnd = addDaysISO(referenceDate, FORECAST_DAYS);
+  const allFutureIncomes = getExpectedIncomes()
     .filter(i => !referenceIncome || (i.id !== referenceIncome.id && i.date > referenceIncome.date))
+    .filter(i => i.date <= horizonEnd);
+  const nextIncome = allFutureIncomes[0] || null;
+
+  // Without a later paycheck, FOS cannot call a bill a next-cycle shortfall.
+  if (referenceIncome && !nextIncome) {
+    return { referenceDate, horizonEnd, nextIncome: null, futureIncomes: [], needsEarlierMission: [], coveredByFuture: [] };
+  }
+
+  const futureIncomes = allFutureIncomes
     .map(i => ({ income: i, remaining: netIncomeAfterTax(i), assignedBillIds: [] }));
+  const forecastStart = referenceIncome ? nextIncome.date : referenceDate;
   const bills = state.bills
-    .filter(b => b.status === "Unpaid" && !b.missionId && b.dueDate >= referenceDate)
+    .filter(b => b.status === "Unpaid" && !b.missionId)
+    .filter(b => b.dueDate >= forecastStart && b.dueDate <= horizonEnd)
     .sort((a, b) => b.dueDate.localeCompare(a.dueDate));
   const needsEarlierMission = [];
   const coveredByFuture = [];
@@ -345,7 +374,7 @@ function buildForecastPlan(referenceIncome = null) {
   }
   needsEarlierMission.sort((a,b)=>a.bill.dueDate.localeCompare(b.bill.dueDate));
   coveredByFuture.sort((a,b)=>a.bill.dueDate.localeCompare(b.bill.dueDate));
-  return { referenceDate, futureIncomes, needsEarlierMission, coveredByFuture };
+  return { referenceDate, horizonEnd, nextIncome, futureIncomes, needsEarlierMission, coveredByFuture };
 }
 
 function calculateSafetyAdvice() {
@@ -381,9 +410,10 @@ function makeSuggestedAllocation(income, receivedOverride = null) {
   let bills = 0;
   const forecast = forecastForMission(income);
   const recommended = new Set(forecast.recommendedBillIds);
+  const currentIds = new Set(currentCycleBills(income).map(b => b.id));
   const orderedBills = eligibleBillsForMission(income).sort((a,b) => {
-    const ar = recommended.has(a.id) ? 0 : 1;
-    const br = recommended.has(b.id) ? 0 : 1;
+    const ar = currentIds.has(a.id) ? 0 : (recommended.has(a.id) ? 1 : 2);
+    const br = currentIds.has(b.id) ? 0 : (recommended.has(b.id) ? 1 : 2);
     return ar - br || a.dueDate.localeCompare(b.dueDate);
   });
   for (const bill of orderedBills) {
@@ -472,7 +502,8 @@ function renderMission() {
   const c=document.getElementById("missionBillChoices"); c.innerHTML="";
   const bills=eligibleBillsForMission(income); const recommended=new Set(forecast.recommendedBillIds);
   if(!bills.length)c.innerHTML='<div class="empty-state">No unassigned bills need protection.</div>';
-  bills.forEach(b=>{const row=document.createElement("label");row.className="bill-choice";const tag=recommended.has(b.id)?'<small class="forecast-tag">Future shortfall</small>':'';row.innerHTML=`<input class="mission-bill-checkbox" type="checkbox" value="${b.id}" ${a.selectedBillIds.includes(b.id)?"checked":""}><span><strong>${escapeHTML(b.name)}</strong><small>Due ${formatDisplayDate(b.dueDate)}</small>${tag}</span><strong>$${getBillAmountInAUD(b).toFixed(2)}</strong>`;c.appendChild(row);});
+  const currentIds = new Set(currentCycleBills(income).map(b=>b.id));
+  bills.forEach(b=>{const row=document.createElement("label");row.className="bill-choice";const tag=currentIds.has(b.id)?'<small class="forecast-tag current-cycle-tag">Current cycle</small>':(recommended.has(b.id)?'<small class="forecast-tag">60-day future shortfall</small>':'');row.innerHTML=`<input class="mission-bill-checkbox" type="checkbox" value="${b.id}" ${a.selectedBillIds.includes(b.id)?"checked":""}><span><strong>${escapeHTML(b.name)}</strong><small>Due ${formatDisplayDate(b.dueDate)}</small>${tag}</span><strong>$${getBillAmountInAUD(b).toFixed(2)}</strong>`;c.appendChild(row);});
   syncAllocationReview();
 }
 function confirmAllocation() {
