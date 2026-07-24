@@ -27,6 +27,7 @@ const DEFAULT_STATE = {
 
 let state = clone(DEFAULT_STATE);
 let saveTimer = null;
+let currentViewModel = null;
 
 // Shared DOM helper used by every screen renderer.
 const $ = id => document.getElementById(id);
@@ -140,6 +141,7 @@ function loadState() {
     if (income) {
       const received = round2(state.activeMission.allocation?.received || income.amount);
       state.activeMission.allocation = makeSuggestedAllocation(income, received);
+      state.activeMission.syncFingerprint = missionSyncFingerprint(income);
     }
   }
   unlockDueRecurringBills();
@@ -436,7 +438,8 @@ function initMission(income) {
   state.activeMission = {
     incomeId: income.id, incomeAmount: round2(income.amount), incomeSource: income.source,
     taxDeducted: income.taxDeducted, confirmed: false,
-    allocation: makeSuggestedAllocation(income)
+    allocation: makeSuggestedAllocation(income),
+    syncFingerprint: missionSyncFingerprint(income)
   };
   persistState(); navigateTo("paydayScreen");
 }
@@ -458,6 +461,8 @@ function allocationFromInputs() {
 function syncAllocationReview() {
   const am=state.activeMission; if(!am || am.confirmed) return;
   const a=allocationFromInputs(); am.allocation=a;
+  const syncIncome=state.incomes.find(i=>i.id===am.incomeId);
+  if(syncIncome) am.syncFingerprint=missionSyncFingerprint(syncIncome);
   const total=round2(a.tax+a.bills+a.shortfall+a.sadaqah+a.emergency+a.gold);
   const remaining=Math.max(0,round2(a.received-total));
   const selectedGross=round2((a.selectedBillIds||[]).reduce((sum,id)=>{
@@ -501,7 +506,7 @@ function populateAllocationInputs(a) {
   document.getElementById("allocationBills").value=round2(a.bills).toFixed(2);
   document.getElementById("allocationMain").value=Math.max(0,round2(a.main)).toFixed(2);
 }
-function renderMission() {
+function renderMission(viewModel = currentViewModel) {
   const am=state.activeMission, empty=document.getElementById("missionEmpty"), review=document.getElementById("missionReview"), complete=document.getElementById("missionComplete");
   if(!am){ empty?.classList.remove("hidden"); review?.classList.add("hidden"); complete?.classList.add("hidden"); return; }
   empty?.classList.add("hidden"); document.getElementById("missionHeading").textContent=`Mission: ${am.incomeSource}`;
@@ -514,7 +519,7 @@ function renderMission() {
   review.classList.remove("hidden"); complete.classList.add("hidden"); const income=state.incomes.find(i=>i.id===am.incomeId); const a=am.allocation||makeSuggestedAllocation(income);
   a.sadaqah = round2(a.sadaqah);
   populateAllocationInputs(a);
-  const forecast=forecastForMission(income), plan=forecast.plan;
+  const plan=viewModel?.missionPlan || buildForecastPlan(income); const forecast={recommendedBillIds:plan.currentBills.map(b=>b.id),recommendedTotal:plan.futureGap,items:plan.gaps,plan};
   const forecastBox=$("missionForecastAdvice"), forecastTitle=$("missionForecastTitle"), forecastText=$("missionForecastText"), forecastBreakdown=$("missionForecastBreakdown");
   forecastBox?.classList.remove("hidden");
   const protectedNow=Math.min(round2(a.shortfall||0),plan.futureGap);
@@ -577,8 +582,10 @@ function recalculateAllocationFromReceivedAmount() {
   if (!Number.isFinite(received) || received < 0) return;
 
   am.allocation = makeSuggestedAllocation(income, round2(received));
+  am.syncFingerprint = missionSyncFingerprint(income);
   persistState(false);
-  renderMission();
+  currentViewModel = buildViewModel();
+  renderMission(currentViewModel);
 }
 
 const receivedAmountInput = document.getElementById("reviewReceivedAmount");
@@ -594,7 +601,7 @@ document.getElementById("allocationTax")?.addEventListener("input", refreshSugge
 document.getElementById("allocationShortfall")?.addEventListener("input",refreshSuggestedSadaqahFromInputs);
 ["allocationSadaqah","allocationEmergency","allocationGold"].forEach(id=>document.getElementById(id)?.addEventListener("input",syncAllocationReview));
 document.getElementById("missionBillChoices")?.addEventListener("change",refreshSuggestedSadaqahFromInputs);
-document.getElementById("resetAllocationBtn")?.addEventListener("click",()=>{const i=state.incomes.find(x=>x.id===state.activeMission?.incomeId);if(i){state.activeMission.allocation=makeSuggestedAllocation(i);renderMission();}});
+document.getElementById("resetAllocationBtn")?.addEventListener("click",()=>{const i=state.incomes.find(x=>x.id===state.activeMission?.incomeId);if(i){state.activeMission.allocation=makeSuggestedAllocation(i);state.activeMission.syncFingerprint=missionSyncFingerprint(i);currentViewModel=buildViewModel();renderMission(currentViewModel);}});
 document.getElementById("confirmAllocationBtn")?.addEventListener("click",confirmAllocation);
 document.getElementById("cancelMissionBtn")?.addEventListener("click",()=>{const i=state.incomes.find(x=>x.id===state.activeMission?.incomeId);if(i)i.status="Pending";state.activeMission=null;persistState();navigateTo("homeScreen");});
 document.getElementById("finishMissionBtn")?.addEventListener("click",()=>{state.activeMission=null;persistState();navigateTo("homeScreen");});
@@ -611,12 +618,84 @@ window.markBillPaid = function(id) {
   persistState();
 };
 
+
+function missionSyncFingerprint(income) {
+  if (!income) return "";
+  const relevant = {
+    income: { id: income.id, amount: round2(income.amount), date: income.date, taxDeducted: income.taxDeducted, status: income.status },
+    accounts: clone(state.accounts),
+    policy: {
+      taxRate: round2(state.policy.taxRate),
+      sadaqahRate: round2(state.policy.sadaqahRate),
+      emergencyTarget: round2(state.policy.emergencyTarget),
+      goldTarget: round2(state.policy.goldTarget),
+      exchangeRate: Number(state.policy.exchangeRate) || 0,
+      mode: state.policy.mode,
+      stabilityEmergencyPct: round2(state.policy.stabilityEmergencyPct),
+      growthEmergencyPct: round2(state.policy.growthEmergencyPct),
+      wealthEmergencyPct: round2(state.policy.wealthEmergencyPct)
+    },
+    bills: state.bills.map(b => ({
+      id: b.id, name: b.name, amount: round2(b.amount), currency: b.currency,
+      dueDate: b.dueDate, recurring: normalizeFrequency(b.recurring),
+      status: b.status, missionId: b.missionId
+    })).sort((a,b)=>String(a.id).localeCompare(String(b.id))),
+    incomes: state.incomes.map(i => ({
+      id: i.id, amount: round2(i.amount), date: i.date,
+      taxDeducted: i.taxDeducted, status: i.status
+    })).sort((a,b)=>String(a.id).localeCompare(String(b.id)))
+  };
+  return JSON.stringify(relevant);
+}
+
+function synchronizeActiveMissionWithState() {
+  const am = state.activeMission;
+  if (!am || am.confirmed) return false;
+  const income = state.incomes.find(i => i.id === am.incomeId);
+  if (!income) {
+    state.activeMission = null;
+    return true;
+  }
+  const fingerprint = missionSyncFingerprint(income);
+  if (am.syncFingerprint === fingerprint) return false;
+  const received = round2(am.allocation?.received ?? income.amount);
+  am.incomeAmount = round2(income.amount);
+  am.incomeSource = income.source;
+  am.taxDeducted = income.taxDeducted;
+  am.allocation = makeSuggestedAllocation(income, received);
+  am.syncFingerprint = fingerprint;
+  return true;
+}
+
+function buildViewModel() {
+  const safety = calculateSafetyAdvice();
+  const homePlan = safety.plan;
+  const billStatuses = new Map();
+  state.bills.forEach(b => billStatuses.set(b.id, billVisualStatus(b, homePlan)));
+  let missionPlan = null;
+  if (state.activeMission && !state.activeMission.confirmed) {
+    const income = state.incomes.find(i => i.id === state.activeMission.incomeId);
+    if (income) missionPlan = buildForecastPlan(income);
+  }
+  return {
+    safety,
+    homePlan,
+    missionPlan,
+    billStatuses,
+    expectedIncomes: getExpectedIncomes(),
+    protectedCount: state.bills.filter(b => b.status === "Reserved").length,
+    needsFundingCount: [...billStatuses.values()].filter(st => st.cycle === "overdue" || st.cycle === "current" || st.cycle === "future-gap").length
+  };
+}
+
 function renderAll() {
   unlockDueRecurringBills();
+  synchronizeActiveMissionWithState();
+  currentViewModel = buildViewModel();
   const $ = id => document.getElementById(id);
   if ($("homeMain")) $("homeMain").textContent=`$${state.accounts.main.toFixed(2)}`;
   for (const [id,key] of [["accMain","main"],["accBills","bills"],["accShortfall","shortfall"],["accEmergency","emergency"],["accGold","gold"],["accSadaqah","sadaqah"],["accTax","tax"]]) if ($(id)) $(id).textContent=`$${state.accounts[key].toFixed(2)}`;
-  const safety = calculateSafetyAdvice();
+  const safety = currentViewModel.safety;
   if ($("accSafetyHold")) $("accSafetyHold").textContent=`$${safety.hold.toFixed(2)}`;
   if ($("accLifestyle")) $("accLifestyle").textContent=`$${safety.trulySafe.toFixed(2)}`;
   if ($("homeShortfall")) $("homeShortfall").textContent=`$${state.accounts.shortfall.toFixed(2)}`;
@@ -651,15 +730,15 @@ function renderAll() {
     }
   }
   if ($("homeBills")) $("homeBills").textContent=`$${safety.currentNeed.toFixed(2)}`;
-  const protectedCount=state.bills.filter(b=>b.status==="Reserved").length;
-  const needsFundingCount=state.bills.filter(b=>billVisualStatus(b).label==="Needs funding" || billVisualStatus(b).label==="Overdue").length;
+  const protectedCount=currentViewModel.protectedCount;
+  const needsFundingCount=currentViewModel.needsFundingCount;
   if ($("protectedBillsCount")) $("protectedBillsCount").textContent=protectedCount;
   if ($("needsFundingCount")) $("needsFundingCount").textContent=needsFundingCount;
   if ($("homeEmergency")) $("homeEmergency").textContent=`$${state.accounts.emergency.toFixed(2)}`;
   if ($("homeGold")) $("homeGold").textContent=`$${state.accounts.gold.toFixed(2)}`;
   if ($("homeEmergencySub")) $("homeEmergencySub").textContent=`${Math.min(100, state.policy.emergencyTarget ? state.accounts.emergency/state.policy.emergencyTarget*100 : 0).toFixed(0)}% of target`;
   if ($("homeGoldSub")) $("homeGoldSub").textContent=`${Math.min(100, state.policy.goldTarget ? state.accounts.gold/state.policy.goldTarget*100 : 0).toFixed(0)}% of target`;
-  const expectedIncomes = getExpectedIncomes();
+  const expectedIncomes = currentViewModel.expectedIncomes;
   const pending = expectedIncomes[0];
   if (pending && !state.activeMission) {
     const isDue = pending.date <= todayISO();
@@ -681,9 +760,9 @@ function renderAll() {
   const safeRender = (name, fn) => {
     try { fn(); } catch (error) { console.error(`FOS render error in ${name}:`, error); }
   };
-  safeRender("bills", renderBillsList);
-  safeRender("mission queue", renderMissionQueue);
-  safeRender("mission", renderMission);
+  safeRender("bills", () => renderBillsList(currentViewModel));
+  safeRender("mission queue", () => renderMissionQueue(currentViewModel));
+  safeRender("mission", () => renderMission(currentViewModel));
   safeRender("income", renderIncomeList);
   safeRender("transfers", renderTransferHistory);
 }
@@ -707,15 +786,15 @@ function billVisualStatus(b, plan = null){
 
   return {label:"Later bill",tone:"neutral",cycle:"later"};
 }
-function renderMissionQueue() {
+function renderMissionQueue(viewModel = currentViewModel) {
   const container=document.getElementById("missionQueue"),totalEl=document.getElementById("expectedIncomeTotal");if(!container)return;
-  const pending=getExpectedIncomes(),total=pending.reduce((s,i)=>s+round2(i.amount),0);if(totalEl)totalEl.textContent=`$${total.toFixed(2)}`;
+  const pending=viewModel?.expectedIncomes || getExpectedIncomes(),total=pending.reduce((s,i)=>s+round2(i.amount),0);if(totalEl)totalEl.textContent=`$${total.toFixed(2)}`;
   const items=getMissionQueueItems();container.innerHTML="";if(!items.length){container.innerHTML='<div class="queue-empty">No missions are waiting.</div>';return;}
   items.slice(0,4).forEach((item,index)=>{const income=item.income,end=item.nextIncome?.date||null;const bills=state.bills.filter(b=>b.status!=="Paid"&&!b.missionId&&(!end||b.dueDate<end)).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
     const statusText=item.status==="active"?"Active":item.status==="ready"?"Ready":"Waiting";const chips=bills.length?bills.slice(0,3).map(b=>`<span class="queue-bill-chip">${escapeHTML(b.name)}</span>`).join("")+(bills.length>3?`<span class="queue-bill-chip">+${bills.length-3} more</span>`:""):'<span class="queue-bill-chip">No bills assigned yet</span>';
     const card=document.createElement("article");card.className=`queue-card ${item.status}`;card.innerHTML=`<div class="queue-card-head"><div class="queue-card-title"><span class="queue-position">${index+1}</span><div><h3>${escapeHTML(income.source)}</h3><p>${formatDisplayDate(income.date)}</p><span class="queue-status ${item.status}">${statusText}</span></div></div><div class="queue-amount">$${round2(income.amount).toFixed(2)}</div></div><div class="queue-bills"><div class="queue-bills-summary"><strong>Bills this mission may protect</strong><span>${bills.length} bill${bills.length===1?"":"s"}</span></div><div class="queue-bills-list">${chips}</div></div>`;container.appendChild(card);});
 }
-function renderBillsList() {
+function renderBillsList(viewModel = currentViewModel) {
   const c = document.getElementById("billsList");
   if (!c) return;
   c.innerHTML = "";
@@ -726,12 +805,12 @@ function renderBillsList() {
   }
 
   const safeDate = bill => String(bill?.dueDate || "9999-12-31");
-  const forecastPlan = buildForecastPlan(null);
+  const forecastPlan = viewModel?.homePlan || buildForecastPlan(null);
   [...bills]
     .sort((a,b) => Number(a?.status === "Paid") - Number(b?.status === "Paid") || safeDate(a).localeCompare(safeDate(b)))
     .forEach((b,index) => {
       try {
-        const st = billVisualStatus(b || {}, forecastPlan);
+        const st = viewModel?.billStatuses?.get(b?.id) || billVisualStatus(b || {}, forecastPlan);
         const mission = state.incomes.find(i => i.id === b?.missionId);
         const item = document.createElement("div");
         item.className = `list-item bill-item status-${st.tone} bill-cycle-${st.cycle}`;
@@ -966,4 +1045,4 @@ function populateSettings(){for(const [id,key] of [["mode","mode"],["taxRate","t
 window.addEventListener("load",()=>{loadState();populateSettings();renderAll();});
 
 // Exposed only for automated verification; harmless in production.
-window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},setStateRaw:s=>{state=migrateState(s);},calculateBillsDueBeforePayday,calculateSafetyAdvice,buildForecastPlan,forecastForMission,makeSuggestedAllocation,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation,openAccountEditor,reservedBillsThatWouldLoseProtection,unreserveBillsToMatchBalance};
+window.FOS_TEST_API={getState:()=>clone(state),setState:s=>{state=migrateState(s);persistState(false);renderAll();},setStateRaw:s=>{state=migrateState(s);},calculateBillsDueBeforePayday,calculateSafetyAdvice,buildForecastPlan,forecastForMission,makeSuggestedAllocation,addCycle,markBillPaid:window.markBillPaid,initMission,confirmAllocation,openAccountEditor,reservedBillsThatWouldLoseProtection,unreserveBillsToMatchBalance,buildViewModel,synchronizeActiveMissionWithState,missionSyncFingerprint};

@@ -1,17 +1,16 @@
-# FOS v1.7.7 — Overdue Priority, Duplicate Protection & Tax Card
+# FOS v1.7.8 — Synchronized Dashboard Engine
 
-This controlled update keeps the verified 60-day forecast logic unchanged and adds three requested improvements.
+This revision makes all visible cards and pages read from one shared forecast snapshot.
 
-## Changes
-- Adds a Tax account card to the Home dashboard, linked to the same Tax balance used throughout FOS.
-- Carries every unpaid overdue bill into the next mission as first-priority current-cycle funding.
-- Keeps an overdue bill red until a mission allocates money to it; after allocation it is shown as Protected.
-- Detects active duplicate bills with the same name, amount, currency, due date and frequency.
-- Warns before saving a duplicate but permits an intentional separate bill after confirmation.
-- Removing one duplicate removes only that saved bill record.
+## Synchronisation improvements
+- Home cards, Bills statuses, Mission allocation, Mission Protection Summary and the 60-day forecast use the same derived calculation results.
+- Editing or removing a bill immediately rebuilds an unconfirmed mission recommendation.
+- Editing a future paycheck immediately updates the mission, dashboard and bill colours.
+- Editing an account balance immediately updates current-cycle funding, Future Bills Fund use and safe-to-spend figures.
+- Changing tax, Sadaqah, emergency, gold or exchange-rate policy rebuilds all dependent recommendations.
+- The received amount already typed into an active mission is preserved while the rest of the recommendation is refreshed.
+- Confirmed missions are never rewritten automatically.
+- Saved data from v1.7.7 remains compatible.
 
-## Allocation order
-Tax → overdue bills → other bills due before the following paycheck → Future Bills Fund → Sadaqah → Emergency → Gold → Main.
-
-## Compatibility
-Existing saved data is preserved. Current overdue bills that the user manually removes are not recreated.
+## Core rule
+Enter or change information once; every relevant FOS screen refreshes from the same state and forecast engine.
