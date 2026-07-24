@@ -320,51 +320,13 @@ function netIncomeAfterTax(income) {
   return Math.max(0, round2(amount - tax));
 }
 
-const FORECAST_MIN_DAYS = 60;
-const FORECAST_MIN_FUTURE_PAYCHECKS = 2;
-
-function addDaysISO(dateString, days) {
-  const date = parseDateOnly(dateString);
-  if (!date) return dateString;
-  date.setDate(date.getDate() + Number(days || 0));
-  return toDateOnly(date);
-}
-
-function maxISODate(...values) {
-  return values.filter(Boolean).sort().pop() || null;
-}
-
-function getForecastWindow(referenceIncome = null) {
-  const referenceDate = referenceIncome?.date || todayISO();
-  const availableFutureIncomes = getExpectedIncomes()
-    .filter(i => !referenceIncome || (i.id !== referenceIncome.id && i.date > referenceIncome.date));
-  const nextIncome = availableFutureIncomes[0] || null;
-  const secondFutureIncome = availableFutureIncomes[FORECAST_MIN_FUTURE_PAYCHECKS - 1] || null;
-  const minimumEnd = addDaysISO(referenceDate, FORECAST_MIN_DAYS);
-  const horizonEnd = maxISODate(minimumEnd, secondFutureIncome?.date);
-  return {
-    referenceDate,
-    currentCycleEnd: nextIncome?.date || null,
-    horizonEnd,
-    nextIncome,
-    secondFutureIncome,
-    forecastIncomplete: !nextIncome
-  };
-}
-
 function buildForecastPlan(referenceIncome = null) {
-  const window = getForecastWindow(referenceIncome);
+  const referenceDate = referenceIncome?.date || todayISO();
   const futureIncomes = getExpectedIncomes()
     .filter(i => !referenceIncome || (i.id !== referenceIncome.id && i.date > referenceIncome.date))
-    .filter(i => i.date <= window.horizonEnd)
     .map(i => ({ income: i, remaining: netIncomeAfterTax(i), assignedBillIds: [] }));
-
-  // Future shortfalls deliberately begin at the NEXT paycheck. Bills before that
-  // belong to the current mission and are not labelled as forecast shortfalls.
-  const futureCycleStart = window.currentCycleEnd || window.referenceDate;
   const bills = state.bills
-    .filter(b => b.status === "Unpaid" && !b.missionId)
-    .filter(b => b.dueDate >= futureCycleStart && b.dueDate <= window.horizonEnd)
+    .filter(b => b.status === "Unpaid" && !b.missionId && b.dueDate >= referenceDate)
     .sort((a, b) => b.dueDate.localeCompare(a.dueDate));
   const needsEarlierMission = [];
   const coveredByFuture = [];
@@ -383,7 +345,7 @@ function buildForecastPlan(referenceIncome = null) {
   }
   needsEarlierMission.sort((a,b)=>a.bill.dueDate.localeCompare(b.bill.dueDate));
   coveredByFuture.sort((a,b)=>a.bill.dueDate.localeCompare(b.bill.dueDate));
-  return { ...window, futureIncomes, needsEarlierMission, coveredByFuture };
+  return { referenceDate, futureIncomes, needsEarlierMission, coveredByFuture };
 }
 
 function calculateSafetyAdvice() {
@@ -393,7 +355,7 @@ function calculateSafetyAdvice() {
   const uncovered = round2(Math.max(0, hold - state.accounts.main));
   const firstRisk = plan.needsEarlierMission[0] || null;
   const lastProtected = plan.coveredByFuture.length ? plan.coveredByFuture[plan.coveredByFuture.length - 1].bill.dueDate : null;
-  return { nextIncome: plan.nextIncome, upcoming: plan.needsEarlierMission.map(x=>x.bill), hold, trulySafe, uncovered, firstRisk, lastProtected, horizonEnd: plan.horizonEnd, forecastIncomplete: plan.forecastIncomplete, plan };
+  return { nextIncome: getExpectedIncomes()[0] || null, upcoming: plan.needsEarlierMission.map(x=>x.bill), hold, trulySafe, uncovered, firstRisk, lastProtected, plan };
 }
 
 function forecastForMission(income) {
@@ -402,10 +364,7 @@ function forecastForMission(income) {
     recommendedBillIds: plan.needsEarlierMission.map(x=>x.bill.id),
     recommendedTotal: round2(plan.needsEarlierMission.reduce((sum,x)=>sum+x.amount,0)),
     items: plan.needsEarlierMission,
-    coveredByFuture: plan.coveredByFuture,
-    horizonEnd: plan.horizonEnd,
-    currentCycleEnd: plan.currentCycleEnd,
-    forecastIncomplete: plan.forecastIncomplete
+    coveredByFuture: plan.coveredByFuture
   };
 }
 
@@ -414,8 +373,8 @@ function suggestedSadaqah(received, tax, bills) {
   return round2(base * Number(state.policy.sadaqahRate || 10) / 100);
 }
 
-function makeSuggestedAllocation(income) {
-  const received = round2(income.amount);
+function makeSuggestedAllocation(income, receivedOverride = null) {
+  const received = round2(receivedOverride === null ? income.amount : receivedOverride);
   const tax = income.taxDeducted === "Yes" ? 0 : round2(received * Number(state.policy.taxRate || 0) / 100);
   let available = Math.max(0, round2(received - tax));
   const selectedBillIds = [];
@@ -507,9 +466,8 @@ function renderMission() {
   const forecastBox=document.getElementById("missionForecastAdvice"), forecastTitle=document.getElementById("missionForecastTitle"), forecastText=document.getElementById("missionForecastText");
   if(forecastBox&&forecastTitle&&forecastText){
     forecastBox.classList.remove("hidden");
-    if(forecast.forecastIncomplete){forecastBox.className="allocation-feedback status-orange";forecastTitle.textContent="Add the next paycheck to complete the forecast";forecastText.textContent=`FOS is ready to scan at least ${FORECAST_MIN_DAYS} days ahead, but it needs a future income date to separate current bills from next-cycle shortfalls.`;}
-    else if(forecast.items.length){const first=forecast.items[0];forecastBox.className="allocation-feedback status-orange";forecastTitle.textContent=`Next-cycle shortfall detected: $${forecast.recommendedTotal.toFixed(2)}`;forecastText.textContent=forecast.items.length===1?`Protect ${first.bill.name} from this paycheck. It is due ${formatDisplayDate(first.bill.dueDate)}, after the next paycheck, and later missions are not expected to cover it.`:`Protect ${forecast.items.length} later bills from this paycheck. FOS checked through ${formatDisplayDate(forecast.horizonEnd)}.`;}
-    else{forecastBox.className="allocation-feedback status-green";forecastTitle.textContent="Next cycles look covered";forecastText.textContent=`Expected missions cover known bills through ${formatDisplayDate(forecast.horizonEnd)}.`;}
+    if(forecast.items.length){const first=forecast.items[0];forecastBox.className="allocation-feedback status-orange";forecastTitle.textContent=`Future shortfall detected: $${forecast.recommendedTotal.toFixed(2)}`;forecastText.textContent=forecast.items.length===1?`Protect ${first.bill.name} now. It is due ${formatDisplayDate(first.bill.dueDate)} and later missions are not expected to cover it.`:`Protect ${forecast.items.length} future bills now because later missions are not expected to cover them in full.`;}
+    else{forecastBox.className="allocation-feedback status-green";forecastTitle.textContent="Forecast looks covered";forecastText.textContent="Later missions are expected to cover the remaining future bills.";}
   }
   const c=document.getElementById("missionBillChoices"); c.innerHTML="";
   const bills=eligibleBillsForMission(income); const recommended=new Set(forecast.recommendedBillIds);
@@ -538,7 +496,23 @@ function refreshSuggestedSadaqahFromInputs() {
   if (input) input.value = suggestedSadaqah(received, tax, bills).toFixed(2);
   syncAllocationReview();
 }
-["reviewReceivedAmount","allocationTax"].forEach(id=>document.getElementById(id)?.addEventListener("input",refreshSuggestedSadaqahFromInputs));
+
+let receivedAmountRecalcTimer = null;
+function recalculateAllocationFromReceivedAmount() {
+  clearTimeout(receivedAmountRecalcTimer);
+  receivedAmountRecalcTimer = setTimeout(() => {
+    const am = state.activeMission;
+    if (!am || am.confirmed) return;
+    const income = state.incomes.find(i => i.id === am.incomeId);
+    const received = round2(document.getElementById("reviewReceivedAmount")?.value);
+    if (!income || received < 0) return;
+    am.allocation = makeSuggestedAllocation(income, received);
+    renderMission();
+  }, 250);
+}
+
+document.getElementById("reviewReceivedAmount")?.addEventListener("input", recalculateAllocationFromReceivedAmount);
+document.getElementById("allocationTax")?.addEventListener("input", refreshSuggestedSadaqahFromInputs);
 ["allocationSadaqah","allocationEmergency","allocationGold"].forEach(id=>document.getElementById(id)?.addEventListener("input",syncAllocationReview));
 document.getElementById("missionBillChoices")?.addEventListener("change",refreshSuggestedSadaqahFromInputs);
 document.getElementById("resetAllocationBtn")?.addEventListener("click",()=>{const i=state.incomes.find(x=>x.id===state.activeMission?.incomeId);if(i){state.activeMission.allocation=makeSuggestedAllocation(i);renderMission();}});
@@ -575,16 +549,16 @@ function renderAll() {
   if (adviceCard && adviceTitle && adviceText) {
     if (safety.uncovered > 0.009) {
       adviceCard.className="panel safety-advice status-red";
-      adviceTitle.textContent=`Future shortfall: $${safety.uncovered.toFixed(2)}`;
-      adviceText.textContent=safety.firstRisk ? `${safety.firstRisk.bill.name}, due ${formatDisplayDate(safety.firstRisk.bill.dueDate)}, falls after the next paycheck and is not fully protected by expected missions or Main.` : "The next income cycles and Main do not fully cover known bills inside the forecast window.";
+      adviceTitle.textContent=`Forecast shortfall: $${safety.uncovered.toFixed(2)}`;
+      adviceText.textContent=safety.firstRisk ? `${safety.firstRisk.bill.name}, due ${formatDisplayDate(safety.firstRisk.bill.dueDate)}, is not fully protected by expected missions or Main.` : "Expected missions and Main do not fully cover upcoming bills.";
     } else if (safety.hold > 0.009) {
       adviceCard.className="panel safety-advice status-orange";
-      adviceTitle.textContent=`Reserve $${safety.hold.toFixed(2)} from the current paycheck.`;
-      adviceText.textContent=safety.firstRisk ? `${safety.firstRisk.bill.name}, due ${formatDisplayDate(safety.firstRisk.bill.dueDate)}, is a predicted next-cycle shortfall. Forecast checked through ${formatDisplayDate(safety.horizonEnd)}.` : "Some bills after the next paycheck need support from money already in Main.";
+      adviceTitle.textContent=`Keep $${safety.hold.toFixed(2)} in Main for future bills.`;
+      adviceText.textContent=safety.firstRisk ? `${safety.firstRisk.bill.name}, due ${formatDisplayDate(safety.firstRisk.bill.dueDate)}, cannot be fully covered by later missions.` : "Some future bills need support from money already in Main.";
     } else {
       adviceCard.className="panel safety-advice status-green";
-      adviceTitle.textContent=safety.forecastIncomplete ? "Add the next paycheck to complete the forecast." : "The next income cycles are forecast covered.";
-      adviceText.textContent=safety.forecastIncomplete ? `FOS needs a future income date before it can separate current-cycle bills from future shortfalls.` : `Known bills are checked through ${formatDisplayDate(safety.horizonEnd)}; no future reserve is currently required.`;
+      adviceTitle.textContent="All known upcoming bills are forecast covered.";
+      adviceText.textContent=safety.lastProtected ? `Expected missions protect bills through ${formatDisplayDate(safety.lastProtected)}.` : "There are no unfunded future bills requiring a hold from Main.";
     }
   }
   const due=calculateBillsDueBeforePayday();
