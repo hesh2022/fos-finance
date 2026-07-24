@@ -654,7 +654,15 @@ function renderAll() {
     $("missionStateSub").textContent=state.activeMission ? "Review and confirm the current mission." : "Everything is currently up to date.";
     $("missionIncomeSource").textContent="—"; $("missionIncomeAmount").textContent="$0"; $("startMissionBtn").textContent=state.activeMission ? "Open Mission" : "Start Mission"; $("startMissionBtn").onclick=state.activeMission ? ()=>navigateTo("paydayScreen") : null;
   }
-  renderMissionQueue(); renderMission(); renderBillsList(); renderIncomeList(); renderTransferHistory();
+  // Render each section independently so one legacy/mission error cannot hide the bills list.
+  const safeRender = (name, fn) => {
+    try { fn(); } catch (error) { console.error(`FOS render error in ${name}:`, error); }
+  };
+  safeRender("bills", renderBillsList);
+  safeRender("mission queue", renderMissionQueue);
+  safeRender("mission", renderMission);
+  safeRender("income", renderIncomeList);
+  safeRender("transfers", renderTransferHistory);
 }
 function escapeHTML(v) { return String(v).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])); }
 function billVisualStatus(b){
@@ -672,9 +680,42 @@ function renderMissionQueue() {
     const card=document.createElement("article");card.className=`queue-card ${item.status}`;card.innerHTML=`<div class="queue-card-head"><div class="queue-card-title"><span class="queue-position">${index+1}</span><div><h3>${escapeHTML(income.source)}</h3><p>${formatDisplayDate(income.date)}</p><span class="queue-status ${item.status}">${statusText}</span></div></div><div class="queue-amount">$${round2(income.amount).toFixed(2)}</div></div><div class="queue-bills"><div class="queue-bills-summary"><strong>Bills this mission may protect</strong><span>${bills.length} bill${bills.length===1?"":"s"}</span></div><div class="queue-bills-list">${chips}</div></div>`;container.appendChild(card);});
 }
 function renderBillsList() {
-  const c=document.getElementById("billsList");c.innerHTML="";if(!state.bills.length){c.innerHTML='<div class="empty-state">No bills entered.</div>';return;}
-  [...state.bills].sort((a,b)=>(a.status==="Paid")-(b.status==="Paid")||a.dueDate.localeCompare(b.dueDate)).forEach(b=>{const st=billVisualStatus(b),mission=state.incomes.find(i=>i.id===b.missionId);const item=document.createElement("div");item.className=`list-item bill-item status-${st.tone}`;item.innerHTML=`<div><div class="bill-title-row"><strong>${escapeHTML(b.name)}</strong><span class="status-badge ${st.tone}">${st.label}</span></div><p>Due ${formatDisplayDate(b.dueDate)} · ${escapeHTML(normalizeFrequency(b.recurring))}</p>${mission?`<small>Protected by <strong>${escapeHTML(mission.source)}</strong></small>`:""}</div><div class="right"><strong>$${getBillAmountInAUD(b).toFixed(2)} AUD</strong>${b.currency!=="AUD"?`<small>${round2(b.amount)} ${b.currency}</small>`:""}<div>${b.status==="Reserved"?`<button class="text-btn success-text" onclick="markBillPaid('${b.id}')">Mark Paid</button>`:""}<button class="text-btn primary-text" onclick="editBill('${b.id}')">Edit</button><button class="text-btn danger-text" onclick="deleteBill('${b.id}')">Remove</button></div></div>`;c.appendChild(item);});
+  const c = document.getElementById("billsList");
+  if (!c) return;
+  c.innerHTML = "";
+  const bills = Array.isArray(state.bills) ? state.bills : [];
+  if (!bills.length) {
+    c.innerHTML = '<div class="empty-state">No bills entered.</div>';
+    return;
+  }
+
+  const safeDate = bill => String(bill?.dueDate || "9999-12-31");
+  [...bills]
+    .sort((a,b) => Number(a?.status === "Paid") - Number(b?.status === "Paid") || safeDate(a).localeCompare(safeDate(b)))
+    .forEach((b,index) => {
+      try {
+        const st = billVisualStatus(b || {});
+        const mission = state.incomes.find(i => i.id === b?.missionId);
+        const item = document.createElement("div");
+        item.className = `list-item bill-item status-${st.tone}`;
+        const billId = String(b?.id || `legacy-bill-${index}`);
+        const billName = escapeHTML(b?.name || "Unnamed bill");
+        const frequency = escapeHTML(normalizeFrequency(b?.recurring || "One-off"));
+        const amountAud = Number(getBillAmountInAUD(b || {})) || 0;
+        const originalAmount = Number(b?.amount) || 0;
+        const currency = b?.currency || "AUD";
+        item.innerHTML = `<div><div class="bill-title-row"><strong>${billName}</strong><span class="status-badge ${st.tone}">${st.label}</span></div><p>Due ${formatDisplayDate(b?.dueDate)} · ${frequency}</p>${mission?`<small>Protected by <strong>${escapeHTML(mission.source)}</strong></small>`:""}</div><div class="right"><strong>$${amountAud.toFixed(2)} AUD</strong>${currency!=="AUD"?`<small>${round2(originalAmount)} ${escapeHTML(currency)}</small>`:""}<div>${b?.status==="Reserved"?`<button class="text-btn success-text" onclick="markBillPaid('${billId}')">Mark Paid</button>`:""}<button class="text-btn primary-text" onclick="editBill('${billId}')">Edit</button><button class="text-btn danger-text" onclick="deleteBill('${billId}')">Remove</button></div></div>`;
+        c.appendChild(item);
+      } catch (error) {
+        console.error("Could not render bill", b, error);
+        const item = document.createElement("div");
+        item.className = "list-item bill-item status-red";
+        item.innerHTML = `<div><strong>${escapeHTML(b?.name || "Bill")}</strong><p>This saved bill needs review.</p></div><div class="right"><button class="text-btn primary-text" onclick="editBill('${String(b?.id || "")}')">Edit</button></div>`;
+        c.appendChild(item);
+      }
+    });
 }
+
 function renderIncomeList() {
   const c=document.getElementById("incomeList"); c.innerHTML="";
   if (!state.incomes.length) { c.innerHTML='<div class="empty-state">No income records.</div>'; return; }

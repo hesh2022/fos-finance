@@ -1,3 +1,9 @@
+FOS v1.7.2 — Bills List Rendering Fix
+
+- Restores the bills list when a mission rendering error occurs.
+- Handles older or incomplete saved bill records safely.
+- Keeps all existing local data; no reset is required.
+
 # FOS v1.7.1 — Verified Cash-Flow Map
 
 This build uses one calculation source for the dashboard, mission allocation and 60-day forecast.
