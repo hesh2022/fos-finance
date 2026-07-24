@@ -497,21 +497,34 @@ function refreshSuggestedSadaqahFromInputs() {
   syncAllocationReview();
 }
 
-let receivedAmountRecalcTimer = null;
 function recalculateAllocationFromReceivedAmount() {
-  clearTimeout(receivedAmountRecalcTimer);
-  receivedAmountRecalcTimer = setTimeout(() => {
-    const am = state.activeMission;
-    if (!am || am.confirmed) return;
-    const income = state.incomes.find(i => i.id === am.incomeId);
-    const received = round2(document.getElementById("reviewReceivedAmount")?.value);
-    if (!income || received < 0) return;
-    am.allocation = makeSuggestedAllocation(income, received);
-    renderMission();
-  }, 250);
+  const am = state.activeMission;
+  if (!am || am.confirmed) return;
+  const income = state.incomes.find(i => i.id === am.incomeId);
+  const input = document.getElementById("reviewReceivedAmount");
+  if (!income || !input) return;
+
+  const raw = String(input.value ?? "").trim();
+  // Do not treat a temporarily empty field as a real payment of zero while the user is editing.
+  if (raw === "") return;
+
+  const received = Number(raw);
+  if (!Number.isFinite(received) || received < 0) return;
+
+  am.allocation = makeSuggestedAllocation(income, round2(received));
+  persistState(false);
+  renderMission();
 }
 
-document.getElementById("reviewReceivedAmount")?.addEventListener("input", recalculateAllocationFromReceivedAmount);
+const receivedAmountInput = document.getElementById("reviewReceivedAmount");
+receivedAmountInput?.addEventListener("change", recalculateAllocationFromReceivedAmount);
+receivedAmountInput?.addEventListener("keydown", event => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    recalculateAllocationFromReceivedAmount();
+    receivedAmountInput.blur();
+  }
+});
 document.getElementById("allocationTax")?.addEventListener("input", refreshSuggestedSadaqahFromInputs);
 ["allocationSadaqah","allocationEmergency","allocationGold"].forEach(id=>document.getElementById(id)?.addEventListener("input",syncAllocationReview));
 document.getElementById("missionBillChoices")?.addEventListener("change",refreshSuggestedSadaqahFromInputs);
